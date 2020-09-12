@@ -7,6 +7,8 @@
 #include <BLEUtils.h>
 #include <BLE2902.h>
 
+#include "MedianFilter.h"
+
 //////------------------------------------
 ////// Defines
 
@@ -16,9 +18,8 @@
 #define SERIAL_CNTRL_TO_LCD_RXPIN 34
 #define SERIAL_CNTRL_TO_LCD_TXPIN 13
 
-#define PIN_READ_FLAG 33
-#define PIN_WRITE_FLAG 32
-#define PIN_IN_BREAK 12
+#define PIN_IN_BREAK 32
+#define PIN_IN_VOLTAGE 33
 
 #define MODE_LCD_TO_CNTRL 0
 #define MODE_CNTRL_TO_LCD 1
@@ -26,11 +27,15 @@
 #define DATA_BUFFER_SIZE 30
 #define BAUD_RATE 1200
 
+#define ANALOG_TO_VOLTS 43.48
+
 // See the following for generating UUIDs:
 // https://www.uuidgenerator.net/
 #define SERVICE_UUID "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
 #define SPEED_CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
 #define MODE_CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a9"
+#define BRAKE_STATUS_CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26aa"
+#define VOLTAGE_STATUS_CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26ab"
 
 //////------------------------------------
 ////// Variables
@@ -58,18 +63,25 @@ int begin_CntrlToLcd = 1;
 
 int isModified_LcdToCntrl = 0;
 
-uint8_t currentSpeed = 0;
-uint8_t orderMode = 1;
+uint8_t speedCurrent = 0;
+uint8_t modeOrder = 1;
 
 uint8_t brakeStatus = 0;
 uint8_t brakeStatusOld = 0;
 uint8_t breakeMin = 2;
 uint8_t breakeMax = 4;
-uint8_t breakeOrder = breakeMin;
+uint8_t breakeSentOrder = breakeMin;
+
+uint16_t voltageStatus = 0;
+uint32_t voltageInMilliVolts = 0;
+MedianFilter voltageFilter(100, 0);
 
 BLEServer *pServer = NULL;
 BLECharacteristic *pCharacteristicSpeed = NULL;
 BLECharacteristic *pCharacteristicMode = NULL;
+BLECharacteristic *pCharacteristicBrakeSentOrder = NULL;
+BLECharacteristic *pCharacteristicVoltageStatus = NULL;
+
 bool deviceConnected = false;
 bool oldDeviceConnected = false;
 BLEScan *pBLEScan;
@@ -130,8 +142,8 @@ class BLEAdvertisedDeviceCallback : public BLEAdvertisedDeviceCallbacks
    */
   void onResult(BLEAdvertisedDevice advertisedDevice)
   {
-    // Serial.print("BLE Advertised Device found: ");
-    // Serial.println(advertisedDevice.toString().c_str());
+    Serial.print("BLE Advertised Device found: ");
+    Serial.println(advertisedDevice.toString().c_str());
     /*
     // We have found a device, let us now see if it contains the service we are looking for.
     if (advertisedDevice.haveServiceUUID() && advertisedDevice.getServiceUUID().equals(SERVICE_UUID)) {
@@ -150,39 +162,63 @@ class BLEAdvertisedDeviceCallback : public BLEAdvertisedDeviceCallbacks
 
 class BLECharacteristicCallback : public BLECharacteristicCallbacks
 {
-  void onWrite(BLECharacteristic *pCharacteristic)
+  void onWrite(BLECharacteristic *pCharacteristicSpeed)
   {
-    if (pCharacteristic->getUUID().toString() == MODE_CHARACTERISTIC_UUID)
+    if (pCharacteristicSpeed->getUUID().toString() == MODE_CHARACTERISTIC_UUID)
     {
-      std::string rxValue = pCharacteristic->getValue();
-      orderMode = rxValue[0];
+      std::string rxValue = pCharacteristicSpeed->getValue();
+      modeOrder = rxValue[0];
 
       char print_buffer[500];
-      sprintf(print_buffer, "%02x", orderMode);
+      sprintf(print_buffer, "%02x", modeOrder);
       Serial.print("Write mode : ");
       Serial.println(print_buffer);
+
+      //      Serial.print("Notify mode : ");
+      //      pCharacteristic->setValue((uint8_t *)&orderMode, 1);
+      //      pCharacteristic->notify();
     }
   }
 
-  void onRead(BLECharacteristic *pCharacteristic)
+  void onRead(BLECharacteristic *pCharacteristicSpeed)
   {
-    if (pCharacteristic->getUUID().toString() == MODE_CHARACTERISTIC_UUID)
+    if (pCharacteristicSpeed->getUUID().toString() == MODE_CHARACTERISTIC_UUID)
     {
-      pCharacteristic->setValue((uint8_t *)&orderMode, 1);
+      pCharacteristicSpeed->setValue((uint8_t *)&modeOrder, 1);
 
       char print_buffer[500];
-      sprintf(print_buffer, "%02x", orderMode);
+      sprintf(print_buffer, "%02x", modeOrder);
       Serial.print("Read mode : ");
       Serial.println(print_buffer);
     }
 
-    if (pCharacteristic->getUUID().toString() == SPEED_CHARACTERISTIC_UUID)
+    if (pCharacteristicSpeed->getUUID().toString() == SPEED_CHARACTERISTIC_UUID)
     {
-      pCharacteristic->setValue((uint8_t *)&currentSpeed, 1);
+      pCharacteristicSpeed->setValue((uint8_t *)&speedCurrent, 1);
 
       char print_buffer[500];
-      sprintf(print_buffer, "%02x", currentSpeed);
+      sprintf(print_buffer, "%02x", speedCurrent);
       Serial.print("Read speed : ");
+      Serial.println(print_buffer);
+    }
+
+    if (pCharacteristicBrakeSentOrder->getUUID().toString() == BRAKE_STATUS_CHARACTERISTIC_UUID)
+    {
+      pCharacteristicBrakeSentOrder->setValue((uint8_t *)&breakeSentOrder, 1);
+
+      char print_buffer[500];
+      sprintf(print_buffer, "%02x", breakeSentOrder);
+      Serial.print("Read breakeSentOrder : ");
+      Serial.println(print_buffer);
+    }
+
+    if (pCharacteristicVoltageStatus->getUUID().toString() == VOLTAGE_STATUS_CHARACTERISTIC_UUID)
+    {
+      pCharacteristicVoltageStatus->setValue((uint8_t *)&voltageInMilliVolts, 4);
+
+      char print_buffer[500];
+      sprintf(print_buffer, "%02f", voltageInMilliVolts / 1000.0);
+      Serial.print("Read breakeSentOrder : ");
       Serial.println(print_buffer);
     }
   }
@@ -190,22 +226,29 @@ class BLECharacteristicCallback : public BLECharacteristicCallbacks
 
 void bleOnScanResults(BLEScanResults scanResults)
 {
-  // Serial.print("BLE Scan Device found: ");
-  // Serial.println(scanResults.getCount());
-  // for (int i = 0; i < scanResults.getCount(); i++) {
-  //   String name = scanResults.getDevice(i).getName().c_str();
-  //   int rssi = scanResults.getDevice(i).getRSSI();
-  //   Serial.print("BLE device : ");
-  //   Serial.print(name);
-  //   Serial.print(" / ");
-  //   Serial.println(rssi);
-  // }
+  Serial.print("BLE Scan Device found: ");
+  Serial.println(scanResults.getCount());
+  for (int i = 0; i < scanResults.getCount(); i++) {
+    String name = scanResults.getDevice(i).getName().c_str();
+    int rssi = scanResults.getDevice(i).getRSSI();
+    Serial.print("BLE device : ");
+    Serial.print(name);
+    Serial.print(" / adress : ");
+    std::string address = scanResults.getDevice(i).getAddress().toString();
+    Serial.print(address.c_str());
+    Serial.print(" / name : ");
+    Serial.print(name);
+    Serial.print(" / rssi ");
+    Serial.println(rssi);
+
+  }
   pBLEScan->start(20, &bleOnScanResults, false);
 }
 
 void setupPins()
 {
   pinMode(PIN_IN_BREAK, INPUT);
+  pinMode(PIN_IN_VOLTAGE, INPUT);
 }
 
 void setupBLE()
@@ -228,14 +271,31 @@ void setupBLE()
 
   pCharacteristicMode = pService->createCharacteristic(
       MODE_CHARACTERISTIC_UUID,
-      BLECharacteristic::PROPERTY_WRITE |
+      BLECharacteristic::PROPERTY_NOTIFY |
+          BLECharacteristic::PROPERTY_WRITE |
+          BLECharacteristic::PROPERTY_READ);
+
+  pCharacteristicBrakeSentOrder = pService->createCharacteristic(
+      BRAKE_STATUS_CHARACTERISTIC_UUID,
+      BLECharacteristic::PROPERTY_NOTIFY |
+          BLECharacteristic::PROPERTY_READ);
+
+  pCharacteristicVoltageStatus = pService->createCharacteristic(
+      VOLTAGE_STATUS_CHARACTERISTIC_UUID,
+      BLECharacteristic::PROPERTY_NOTIFY |
           BLECharacteristic::PROPERTY_READ);
 
   // https://www.bluetooth.com/specifications/gatt/viewer?attributeXmlFile=org.bluetooth.descriptor.gatt.client_characteristic_configuration.xml
   // Create a BLE Descriptor
   pCharacteristicSpeed->addDescriptor(new BLE2902());
   pCharacteristicMode->addDescriptor(new BLE2902());
+  pCharacteristicBrakeSentOrder->addDescriptor(new BLE2902());
+  pCharacteristicVoltageStatus->addDescriptor(new BLE2902());
+
+  pCharacteristicSpeed->setCallbacks(new BLECharacteristicCallback());
   pCharacteristicMode->setCallbacks(new BLECharacteristicCallback());
+  pCharacteristicBrakeSentOrder->setCallbacks(new BLECharacteristicCallback());
+  pCharacteristicVoltageStatus->setCallbacks(new BLECharacteristicCallback());
 
   // Start the service
   pService->start();
@@ -263,9 +323,6 @@ void setupSerial()
 
   //  swSerCntrlToLcd.begin(BAUD_RATE, SWSERIAL_8N1, SERIAL_CNTRL_TO_LCD_RXPIN, SERIAL_CNTRL_TO_LCD_TXPIN, false, 256);
   hwSerCntrlToLcd.begin(BAUD_RATE, SERIAL_8N1, SERIAL_CNTRL_TO_LCD_RXPIN, SERIAL_CNTRL_TO_LCD_TXPIN);
-
-  pinMode(PIN_READ_FLAG, OUTPUT);
-  pinMode(PIN_WRITE_FLAG, OUTPUT);
 }
 
 ////// Setup
@@ -367,7 +424,7 @@ void displaySpeed(char data_buffer[])
 
   int speed = (((int)high2 * 256) + (low)) / 20.5;
 
-  currentSpeed = speed;
+  speedCurrent = speed;
 
   /*
   char print_buffer[500];
@@ -410,12 +467,12 @@ void displayMode(char data_buffer[])
   Serial.println("");
 }
 
-uint8_t modifyMode(char var, char data_buffer[])
+uint8_t modifyModeOld(char var, char data_buffer[])
 {
   uint32_t byteDiff = (var - data_buffer[2]);
   uint8_t lcdMode = byteDiff & 0x03;
   uint8_t lcdModeMask = byteDiff & 0xfc;
-  uint8_t newLcdMode2 = orderMode | lcdModeMask;
+  uint8_t newLcdMode2 = modeOrder | lcdModeMask;
   uint32_t newLcdMode3 = (newLcdMode2 + data_buffer[2]) & 0xff;
 
   char print_buffer[500];
@@ -441,7 +498,7 @@ uint8_t modifyMode(char var, char data_buffer[])
           "lcd",
           lcdMode,
           "order",
-          orderMode);
+          modeOrder);
 
   Serial.print("LCD mode : ");
   Serial.print(print_buffer);
@@ -450,13 +507,13 @@ uint8_t modifyMode(char var, char data_buffer[])
   return newLcdMode3;
 }
 
-uint8_t modifyMode2(char var, char data_buffer[])
+uint8_t modifyMode(char var, char data_buffer[])
 {
   uint8_t newLcdMode3;
 
-  if (orderMode == 0)
+  if (modeOrder == 0)
     newLcdMode3 = lcdMode0[(uint8_t)(data_buffer[2])];
-  else if (orderMode == 1)
+  else if (modeOrder == 1)
     newLcdMode3 = lcdMode1[(uint8_t)(data_buffer[2])];
   else
     newLcdMode3 = lcdMode2[(uint8_t)(data_buffer[2])];
@@ -466,7 +523,7 @@ uint8_t modifyMode2(char var, char data_buffer[])
 
 uint8_t modifyBrake(char var, char data_buffer[])
 {
-
+  /*
   uint8_t brakeStatusNew = !digitalRead(PIN_IN_BREAK);
 
   if ((brakeStatusNew == 1) && (brakeStatusOld == 0))
@@ -476,47 +533,61 @@ uint8_t modifyBrake(char var, char data_buffer[])
 
     Serial.print("Brake pressed at : ");
     Serial.println(timeLastBrake);
+
+    // notify bluetooth
+    pCharacteristicBrakeSentOrder->setValue((uint8_t *)&breakeSentOrder, 1);
+    pCharacteristicBrakeSentOrder->notify();
   }
   else if ((brakeStatusNew == 0) && (brakeStatusOld == 1))
   {
     brakeStatus = brakeStatusNew;
 
+    // reset to min
+    breakeSentOrder = breakeMin;
+
     Serial.print("Brake released at : ");
     Serial.println(timeLoop);
+
+    // notify bluetooth
+    pCharacteristicBrakeSentOrder->setValue((uint8_t *)&breakeSentOrder, 1);
+    pCharacteristicBrakeSentOrder->notify();
   }
 
   if (brakeStatus == 1)
   {
     if (timeLoop - timeLastBrake > 1500)
     {
-      breakeOrder = breakeMin + 3;
+      breakeSentOrder = breakeMin + 3;
     }
     else if (timeLoop - timeLastBrake > 1000)
     {
-      breakeOrder = breakeMin + 2;
+      breakeSentOrder = breakeMin + 2;
     }
     else if (timeLoop - timeLastBrake > 500)
     {
-      breakeOrder = breakeMin + 1;
+      breakeSentOrder = breakeMin + 1;
     }
     else
     {
-      breakeOrder = breakeMin;
+      breakeSentOrder = breakeMin;
     }
+
+    // notify bluetooth
+    pCharacteristicBrakeSentOrder->setValue((uint8_t *)&breakeSentOrder, 1);
+    pCharacteristicBrakeSentOrder->notify();
   }
   else
   {
-    breakeOrder = breakeMin;
+    breakeSentOrder = breakeMin;
   }
-
   brakeStatusOld = brakeStatusNew;
 
   char print_buffer[500];
   sprintf(print_buffer, "%s %02x %s %02x %s %02x %s %d %s %d",
           "Brake Status New : ",
           brakeStatusNew,
-          " / Order LCD brake  : ",
-          breakeOrder,
+          " / breakeSentOrder  : ",
+          breakeSentOrder,
           " / Current LCD brake  : ",
           var,
           " / timeLastBrake  : ",
@@ -525,8 +596,8 @@ uint8_t modifyBrake(char var, char data_buffer[])
           timeLoop);
 
   Serial.println(print_buffer);
-
-  return breakeOrder;
+*/
+  return breakeSentOrder;
 }
 
 int readHardSerial(int i, HardwareSerial *ss, int mode, char data_buffer[])
@@ -542,9 +613,7 @@ int readHardSerial(int i, HardwareSerial *ss, int mode, char data_buffer[])
   if (ss->available() > 0)
   {
 
-    digitalWrite(PIN_READ_FLAG, HIGH);
     var = ss->read();
-    digitalWrite(PIN_READ_FLAG, LOW);
 
     // LCD -> CNTRL
     if (mode == MODE_LCD_TO_CNTRL)
@@ -570,7 +639,7 @@ int readHardSerial(int i, HardwareSerial *ss, int mode, char data_buffer[])
     if ((i == 5) && (mode == MODE_LCD_TO_CNTRL))
     {
       //var = modifyMode(var, data_buffer);
-      var = modifyMode2(var, data_buffer);
+      var = modifyMode(var, data_buffer);
       isModified_LcdToCntrl = 1;
     }
 
@@ -598,9 +667,7 @@ int readHardSerial(int i, HardwareSerial *ss, int mode, char data_buffer[])
 
     data_buffer[i] = var;
 
-    digitalWrite(PIN_WRITE_FLAG, HIGH);
     ss->write(var);
-    digitalWrite(PIN_WRITE_FLAG, LOW);
 
     // Serial.print(var < 0x10 ? PSTR(" 0") : PSTR(" "));
     // Serial.print(var, HEX);
@@ -619,7 +686,7 @@ int readHardSerial(int i, HardwareSerial *ss, int mode, char data_buffer[])
       if (mode == MODE_CNTRL_TO_LCD)
       {
         //displayFrame(mode, data_buffer, checksum);
-        //displaySpeed(data_buffer);
+        displaySpeed(data_buffer);
       }
       else
       {
@@ -663,11 +730,18 @@ void processBLE()
   // notify changed value
   if (deviceConnected)
   {
-    if (millis() > timeLastNotifyBle + 100)
+    if (millis() > timeLastNotifyBle + 500)
     {
-      pCharacteristicSpeed->setValue((uint8_t *)&currentSpeed, 1);
+      pCharacteristicSpeed->setValue((uint8_t *)&speedCurrent, 1);
       pCharacteristicSpeed->notify();
-      Serial.println("notify");
+
+      // Serial.print("Notify speed : ");
+      // Serial.println(speedCurrent);
+
+      // notify bluetooth
+      int32_t temp = voltageFilter.getMean();
+      pCharacteristicVoltageStatus->setValue((uint8_t *)&temp, 4);
+      pCharacteristicVoltageStatus->notify();
 
       timeLastNotifyBle = millis();
     }
@@ -692,9 +766,25 @@ void processBrake()
 {
 
   brakeStatus = digitalRead(PIN_IN_BREAK);
-  Serial.print("Brake : ");
-  Serial.print(brakeStatus);
+
+  /*Serial.print("Brake : ");
+  Serial.println(brakeStatus);*/
 }
+
+void processVoltage()
+{
+
+  voltageStatus = analogRead(PIN_IN_VOLTAGE);
+
+  voltageInMilliVolts = (voltageStatus * 1000) / ANALOG_TO_VOLTS;
+  voltageFilter.in(voltageInMilliVolts);
+
+  /*   Serial.print("Voltage read : ");
+  Serial.print(voltageStatus);
+  Serial.print(" / in volts : ");
+  Serial.println(voltageInMilliVolts / 1000.0); */
+}
+
 //////------------------------------------
 //////------------------------------------
 ////// Main loop
@@ -702,13 +792,14 @@ void processBrake()
 void loop()
 {
 
-  if (i_loop % 1000 == 1)
-  {
-    //    Serial.println("alive");
-  }
-
   processSerial();
   processBLE();
+
+  if (i_loop % 100 == 1)
+  {
+    processVoltage();
+    //    Serial.println("alive");
+  }
 
   // Give a time for ESP
   delay(1);
