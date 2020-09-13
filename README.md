@@ -1,17 +1,31 @@
 # SmartLCD Minimotors
 Warning : this is work in progress. I decline all responsability about using informations from this project.
 
+# What is SmartLCD
+
+It's a combo of electronic and smartphone application to extend all features from original Minimorots EYE LCD and controller.
+
+## What can be done ?
+
+I suggest you to have a look at all planed features below.
+There is almost no limit in custom features.
+The controller power cannot exceed the nominal power, but with a shunt, you can go upper and still have a current control loop to limit the current by software (and avoid burning the controller).
+
+Most settings will be configurable by the smartphone, and additionnal buttons will allow you to control specific features.
+
 ## Main features
 
 ![Idea](/SmartLCD.png)
 
 ## Electronic
-
 ### Software
 The software is designed for ESP32 Dev Kit v4.
 
 ### Schematics
 https://easyeda.com/Koxx3/bettercontroller
+
+## Inspiration to understand controler electronic
+http://avdweb.nl/Article_files/Solarbike/Motor-controller/China-BLDC-motor-controller-36V-250W.pdf
 
 ## TODO / Done
 - [X] Serial Minimotors
