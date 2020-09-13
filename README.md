@@ -1,11 +1,19 @@
 # SmartLCD Minimotors
+Warning : this is work in progress. I decline all responsability about using informations from this project.
 
-Warning : this is work in progress. I decline all responsability about using informations one this project.
+## Main features
 
 ![Idea](/SmartLCD.png)
 
-## TODO/DONE :
+## Electronic
 
+### Software
+The software is designed for ESP32 Dev Kit v4.
+
+### Schematics
+https://easyeda.com/Koxx3/bettercontroller
+
+## TODO / Done
 - [X] Serial Minimotors
     - [X] Read/write serial link LCD_TO_CNTRL
     - [X] Read/write serial link CNTRL_TO_LCD
@@ -41,9 +49,6 @@ Warning : this is work in progress. I decline all responsability about using inf
 
 ## Serial links data decoding
 [Excel](http://github.com/Koxx3/minimo/edit/master/MINIMO.xlsx
-
-## Schematics
-https://easyeda.com/Koxx3/bettercontroller
 
 ## Donate to support
 https://www.paypal.com/donate/?cmd=_s-xclick&hosted_button_id=W3KHBZCNL9N2C&source=url
