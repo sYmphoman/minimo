@@ -22,8 +22,12 @@ Warning : this is work in progress. I decline all responsability about using inf
 - [ ] Smartphone display : speed, mode, voltage, current, power, brake mode (PA)
 - [ ] Smartphone display : time, moving time, 
 - [ ] Smartphone auto-launch app with NFC tag
+- [ ] Smartphone history graphics
 
 - [ ] iPhone app => for someone else
+
+## Serial links data decoding
+[Excel](http://github.com/Koxx3/minimo/edit/master/MINIMO.xlsx
 
 ## Schematics
 https://easyeda.com/Koxx3/bettercontroller
