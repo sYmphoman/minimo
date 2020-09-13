@@ -15,6 +15,8 @@ Warning : this is work in progress. I decline all responsability about using inf
 - [ ] Bluetooth devices parameters and security
 - [ ] Read tempertature/humidity with DHT11
 - [X] Read current with WCS1700
+- [X] Read battery voltage
+- [ ] Read break handle position
 - [ ] Progressive electric braking (in progress)
 - [ ] Customize modes with different power
 - [ ] Smartphone parameters override (P5/P6/P7/)
@@ -22,8 +24,14 @@ Warning : this is work in progress. I decline all responsability about using inf
 - [ ] Smartphone display : speed, mode, voltage, current, power, brake mode (PA)
 - [ ] Smartphone display : time, moving time, 
 - [ ] Smartphone auto-launch app with NFC tag
+- [ ] Smartphone history graphics
+- [ ] Remote physical button to change mode (or other features)
+- [ ] Current loop regulation
 
 - [ ] iPhone app => for someone else
+
+## Serial links data decoding
+[Excel](http://github.com/Koxx3/minimo/edit/master/MINIMO.xlsx
 
 ## Schematics
 https://easyeda.com/Koxx3/bettercontroller
