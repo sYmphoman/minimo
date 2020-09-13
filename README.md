@@ -3,7 +3,7 @@ Warning : this is work in progress. I decline all responsability about using inf
 
 # What is SmartLCD
 
-It's a combo of electronic and smartphone application to extend all features from original Minimorots EYE LCD and controller.
+It's a combo of electronic and smartphone application. It extend all features from original Minimorots EYE LCD and controller.
 
 ## What can be done ?
 
@@ -12,6 +12,11 @@ There is almost no limit in custom features.
 The controller power cannot exceed the nominal power, but with a shunt, you can go upper and still have a current control loop to limit the current by software (and avoid burning the controller).
 
 Most settings will be configurable by the smartphone, and additionnal buttons will allow you to control specific features.
+
+An example : it can lock the escooter with bluetooth proximity (with a beacon or with the smartphone). the power is so reduced that nobody can ride it is you aren't close enouth.
+
+Another example : you find the acceleration trigger to agressive at low speed ? you can change the acceleration curve for smooth trigger at low speed, and still have the beast once you push the trigger harder.
+
 
 ## Main features
 
@@ -35,8 +40,8 @@ http://avdweb.nl/Article_files/Solarbike/Motor-controller/China-BLDC-motor-contr
 - [ ] Serial Kaabo / Zero / Appolo
 - [ ] Bluetooth 
     - [X] communication with Android
-    - [X] Bluetooth anti-theeth with smartphone
-    - [X] Bluetooth anti-theeth with beacon (scan & rssi detection)
+    - [X] Bluetooth anti-theth with smartphone
+    - [X] Bluetooth anti-theth with beacon (scan & rssi detection)
     - [ ] Bluetooth devices parameters and security
 - [ ] Other inputs/outputs
     - [X] Read current with WCS1700
