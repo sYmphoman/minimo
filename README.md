@@ -1,9 +1,15 @@
 SmartLCD Minimotors
-
-[] TODO
-
-[ ] TODO2
-
-[x] DONE
-
-[X] DONE2
+- [X] Read/write serial link LCD_TO_CNTRL
+- [X] Read/write serial link CNTRL_TO_LCD
+- [X] Decode speed from serial link
+- [X] Bluetooth communication
+- [X] Bluetooth anti-theeth with smartphone
+- [X] Bluetooth anti-theeth with beacon
+- [ ] Bluetooth devices parameters and security
+- [ ] Read tempertature/humidity with DHT11
+- [ ] Read current with WCS1700
+- [ ] Smartphone parameters override
+- [ ] Smartphone parameters custom settings
+- [ ] Smartphone display : speed, mode, voltage, current, power, brake mode (PA)
+- [ ] Smartphone display : time, moving time, 
+- [ ] Smartphone auto-launch app with NFC tag
