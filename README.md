@@ -26,6 +26,7 @@ Warning : this is work in progress. I decline all responsability about using inf
     - [ ] Customize modes with different power
     - [ ] Remote physical button to change mode (or other features)
     - [ ] Current loop regulation
+    - [ ] Save settings in non volatile memory
 - [ ] Android app
     - [X] display : speed, mode, voltage, current, power, brake mode (PA)
     - [ ] parameters override (P5/P6/P7/)
