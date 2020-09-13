@@ -6,28 +6,33 @@ Warning : this is work in progress. I decline all responsability about using inf
 
 ## TODO/DONE :
 
-- [X] Read/write serial link LCD_TO_CNTRL
-- [X] Read/write serial link CNTRL_TO_LCD
-- [X] Decode speed/mode/brake/regulator from serial link
-- [X] Bluetooth 
+- [X] Serial Minimotors
+    - [X] Read/write serial link LCD_TO_CNTRL
+    - [X] Read/write serial link CNTRL_TO_LCD
+    - [X] Decode speed/mode/brake/regulator from serial link
+- [ ] Serial Kaabo / Zero / Appolo
+- [ ] Bluetooth 
     - [X] communication with Android
-- [X] Bluetooth anti-theeth with smartphone
-- [X] Bluetooth anti-theeth with beacon (scan & rssi detection)
-- [ ] Bluetooth devices parameters and security
-- [ ] Read tempertature/humidity with DHT11
-- [X] Read current with WCS1700
-- [X] Read battery voltage
-- [ ] Read break handle position
-- [ ] Progressive electric braking (in progress)
-- [ ] Customize modes with different power
-- [ ] Smartphone parameters override (P5/P6/P7/)
-- [ ] Smartphone parameters custom settings
-- [ ] Smartphone display : speed, mode, voltage, current, power, brake mode (PA)
-- [ ] Smartphone display : time, moving time, 
-- [ ] Smartphone auto-launch app with NFC tag
-- [ ] Smartphone history graphics
-- [ ] Remote physical button to change mode (or other features)
-- [ ] Current loop regulation
+    - [X] Bluetooth anti-theeth with smartphone
+    - [X] Bluetooth anti-theeth with beacon (scan & rssi detection)
+    - [ ] Bluetooth devices parameters and security
+- [ ] Other inputs/outputs
+    - [X] Read current with WCS1700
+    - [X] Read battery voltage
+    - [ ] Read break handle position
+    - [ ] Read tempertature/humidity with DHT11
+- [ ] Features    
+    - [ ] Progressive electric braking (in progress)
+    - [ ] Customize modes with different power
+    - [ ] Remote physical button to change mode (or other features)
+    - [ ] Current loop regulation
+- [ ] Android app
+    - [X] display : speed, mode, voltage, current, power, brake mode (PA)
+    - [ ] parameters override (P5/P6/P7/)
+    - [ ] parameters custom settings
+    - [ ] display : time, moving time, 
+    - [ ] auto-launch app with NFC tag
+    - [ ] history graphics
 
 - [ ] iPhone app => for someone else
 
