@@ -16,20 +16,23 @@
 #define DEBUG_BLE_NOTIFY 0
 #define DEBUG_DISPLAY_FRAME_LCD_TO_CNTRL 0
 #define DEBUG_DISPLAY_FRAME_CNTRL_TO_LCD 0
-#define DEBUG_DISPLAY_SPEED 1
+#define DEBUG_DISPLAY_SPEED 0
 #define DEBUG_DISPLAY_MODE 0
+#define DEBUG_DISPLAY_BRAKE 0
+#define DEBUG_DISPLAY_BUTTON1 0
+#define DEBUG_DISPLAY_BUTTON2 0
 #define DEBUG_SERIAL_CHECKSUM_LCD_TO_CNTRL 0
 #define DEBUG_SERIAL_CHECKSUM_CNTRL_TO_LCD 0
 
-#define PIN_SERIAL_LCD_TO_CNTRL_RX 25
-#define SERIAL_LCD_TO_CNTRL_TXPIN 26
-
-#define SERIAL_CNTRL_TO_LCD_RXPIN 34
-#define SERIAL_CNTRL_TO_LCD_TXPIN 13
-
-#define PIN_IN_BREAK 32
+#define PIN_SERIAL_LCD_TO_ESP 25
+#define PIN_SERIAL_ESP_TO_CNTRL 26
+#define PIN_SERIAL_CNTRL_TO_ESP 34
+#define PIN_SERIAL_ESP_TO_LCD 13
+#define PIN_IN_BRAKE 12
 #define PIN_IN_VOLTAGE 33
 #define PIN_IN_CURRENT 35
+#define PIN_IN_BUTTON1 9
+#define PIN_IN_BUTTON2 10
 
 #define MODE_LCD_TO_CNTRL 0
 #define MODE_CNTRL_TO_LCD 1
@@ -94,6 +97,9 @@ uint8_t brakeStatusOld = 0;
 uint8_t breakeMin = 2;
 uint8_t breakeMax = 4;
 uint8_t breakeSentOrder = breakeMin;
+
+uint8_t button1Status = 0;
+uint8_t button2Status = 0;
 
 uint16_t voltageStatus = 0;
 uint32_t voltageInMilliVolts = 0;
@@ -378,15 +384,18 @@ void bleOnScanResults(BLEScanResults scanResults)
 
 void setupPins()
 {
-  pinMode(PIN_IN_BREAK, INPUT);
+  pinMode(PIN_IN_BRAKE, INPUT);
+  pinMode(PIN_IN_BUTTON1, INPUT_PULLUP);
+  pinMode(PIN_IN_BUTTON2, INPUT_PULLUP);
   pinMode(PIN_IN_VOLTAGE, INPUT);
   pinMode(PIN_IN_CURRENT, INPUT);
 }
 
 void setupBLE()
 {
+
   // Create the BLE Device
-  BLEDevice::init("SmartLCD");
+  BLEDevice::init("SmartLCD2");
 
   // Create the BLE Server
   pServer = BLEDevice::createServer();
@@ -470,10 +479,10 @@ void setupSerial()
 {
 
   //  swSerLcdToCntrl.begin(BAUD_RATE, SWSERIAL_8N1, PIN_SERIAL_LCD_TO_CNTRL_RX, SERIAL_LCD_TO_CNTRL_TXPIN, false, 256);
-  hwSerLcdToCntrl.begin(BAUD_RATE, SERIAL_8N1, PIN_SERIAL_LCD_TO_CNTRL_RX, SERIAL_LCD_TO_CNTRL_TXPIN); // -> works
+  hwSerLcdToCntrl.begin(BAUD_RATE, SERIAL_8N1, PIN_SERIAL_LCD_TO_ESP, PIN_SERIAL_ESP_TO_CNTRL);
 
   //  swSerCntrlToLcd.begin(BAUD_RATE, SWSERIAL_8N1, SERIAL_CNTRL_TO_LCD_RXPIN, SERIAL_CNTRL_TO_LCD_TXPIN, false, 256);
-  hwSerCntrlToLcd.begin(BAUD_RATE, SERIAL_8N1, SERIAL_CNTRL_TO_LCD_RXPIN, SERIAL_CNTRL_TO_LCD_TXPIN);
+  hwSerCntrlToLcd.begin(BAUD_RATE, SERIAL_8N1, PIN_SERIAL_CNTRL_TO_ESP, PIN_SERIAL_ESP_TO_LCD);
 }
 
 ////// Setup
@@ -482,16 +491,24 @@ void setup()
 
   // Initialize the Serial (use only in setup codes)
   Serial.begin(115200);
-  Serial.println(PSTR("\n\nsetup begin"));
+  Serial.println(PSTR("\n\nsetup --- begin"));
 
   timeLastNotifyBle = millis();
 
+  Serial.println(PSTR("   serial ..."));
   setupSerial();
+  delay(100);
+
+  Serial.println(PSTR("   BLE ..."));
   setupBLE();
+  delay(100);
+
+  Serial.println(PSTR("   pins ..."));
   setupPins();
+  delay(100);
 
   // End off setup
-  Serial.println("setup ok");
+  Serial.println("setup --- end");
 }
 
 //////------------------------------------
@@ -544,6 +561,24 @@ void displaySpeed()
   Serial.print("speedCurrent : ");
   Serial.print(speedCurrent);
   Serial.println("");
+}
+
+void displayBrake()
+{
+  Serial.print("Brake : ");
+  Serial.println(brakeStatus);
+}
+
+void displayButton1()
+{
+  Serial.print("Button1 : ");
+  Serial.println(button1Status);
+}
+
+void displayButton2()
+{
+  Serial.print("Button2 : ");
+  Serial.println(button2Status);
 }
 
 void displayMode(char data_buffer[])
@@ -758,11 +793,6 @@ int readHardSerial(int i, HardwareSerial *ss, int mode, char data_buffer[])
 
   byte var;
 
-  /*
-    //Serial.print(i);
-    //Serial.print(" / ");
-  */
-
   if (ss->available() > 0)
   {
 
@@ -873,19 +903,11 @@ int readHardSerial(int i, HardwareSerial *ss, int mode, char data_buffer[])
 
     ss->write(var);
 
-    // Serial.print(var < 0x10 ? PSTR(" 0") : PSTR(" "));
-    // Serial.print(var, HEX);
-    // Serial.print(" / ");
-    // Serial.print(i);
-    // Serial.println("");
-
     // display
     if (i == 14)
     {
 
       uint8_t checksum = getCheckSum(data_buffer);
-
-      //Serial.println("");
 
       if (mode == MODE_CNTRL_TO_LCD)
       {
@@ -1012,11 +1034,17 @@ void processBLE()
 
 void processBrake()
 {
+  brakeStatus = digitalRead(PIN_IN_BRAKE);
+}
 
-  brakeStatus = digitalRead(PIN_IN_BREAK);
+void processButton1()
+{
+  button1Status = digitalRead(PIN_IN_BUTTON1);
+}
 
-  /*Serial.print("Brake : ");
-  Serial.println(brakeStatus);*/
+void processButton2()
+{
+  button2Status = digitalRead(PIN_IN_BUTTON2);
 }
 
 void processVoltage()
@@ -1055,6 +1083,19 @@ void loop()
 
   processSerial();
   processBLE();
+
+  processBrake();
+  //displayBrake();
+
+  processButton1();
+#if DEBUG_DISPLAY_BUTTON1  
+  displayButton1();
+#endif
+
+  processButton2();
+#if DEBUG_DISPLAY_BUTTON2 
+  displayButton2();
+#endif
 
   if (i_loop % 100 == 1)
   {
