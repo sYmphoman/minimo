@@ -10,7 +10,7 @@ Warning : this is work in progress. I decline all responsability about using inf
 - [X] Read/write serial link CNTRL_TO_LCD
 - [X] Decode speed/mode/brake/regulator from serial link
 - [X] Bluetooth 
--- [X] communication with Android
+ - [X] communication with Android
 - [X] Bluetooth anti-theeth with smartphone
 - [X] Bluetooth anti-theeth with beacon (scan & rssi detection)
 - [ ] Bluetooth devices parameters and security
