@@ -1,11 +1,11 @@
 # SmartLCD Minimotors
 Warning : this is work in progress. I decline all responsability about using informations from this project.
 
-# What is SmartLCD
+## What is SmartLCD
 
 It's a combo of electronic and smartphone application. It extend all features from original Minimorots EYE LCD and controller.
 
-## What can be done ?
+### What can be done ?
 
 I suggest you to have a look at all planed features below.
 There is almost no limit in custom features.
@@ -17,9 +17,7 @@ An example : it can lock the escooter with bluetooth proximity (with a beacon or
 
 Another example : you find the acceleration trigger to agressive at low speed ? you can change the acceleration curve for smooth trigger at low speed, and still have the beast once you push the trigger harder.
 
-
-## Main features
-
+### Main features
 ![Idea](/SmartLCD.png)
 
 ## Electronic
