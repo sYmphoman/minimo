@@ -23,7 +23,7 @@ Warning : this is work in progress. I decline all responsability about using inf
     - [ ] Read tempertature/humidity with DHT11
 - [ ] Features    
     - [ ] Progressive electric braking (in progress)
-    - [ ] Customize modes with different power
+    - [ ] Customize modes with different power / max speed
     - [ ] Remote physical button to change mode (or other features)
     - [ ] Current loop regulation
     - [ ] Save settings in non volatile memory
