@@ -1,10 +1,10 @@
-SmartLCD Minimotors
+# SmartLCD Minimotors
 
 Warning : this is work in progress. I decline all responsability about using informations one this project.
 
 ![Idea](/SmartLCD.png)
 
-TODO/DONE :
+## TODO/DONE :
 
 - [X] Read/write serial link LCD_TO_CNTRL
 - [X] Read/write serial link CNTRL_TO_LCD
@@ -25,6 +25,8 @@ TODO/DONE :
 
 - [ ] iPhone app => for someone else
 
-Schematics : https://easyeda.com/Koxx3/bettercontroller
+## Schematics
+https://easyeda.com/Koxx3/bettercontroller
 
-Donate to support : https://www.paypal.com/donate/?cmd=_s-xclick&hosted_button_id=W3KHBZCNL9N2C&source=url
+## Donate to support
+https://www.paypal.com/donate/?cmd=_s-xclick&hosted_button_id=W3KHBZCNL9N2C&source=url
