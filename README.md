@@ -55,6 +55,7 @@ http://avdweb.nl/Article_files/Solarbike/Motor-controller/China-BLDC-motor-contr
     - [ ] Custom acceleration curve
     - [ ] Electric brake display with full battery
     - [ ] Data logging
+    - [ ] Advanced diagnosis (serial errors, throtle errors ...)
 - [ ] Android app
     - [X] display : speed, mode, voltage, current, power, brake mode (PA)
     - [ ] parameters override (P5/P6/P7/)
