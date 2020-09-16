@@ -60,7 +60,7 @@ http://avdweb.nl/Article_files/Solarbike/Motor-controller/China-BLDC-motor-contr
     - [X] display : speed, mode, voltage, current, power, brake mode (PA)
     - [ ] parameters override (P5/P6/P7/)
     - [ ] parameters custom settings
-    - [ ] display : time, moving time, 
+    - [ ] display : time, moving time, max speed, max power, max current
     - [ ] auto-launch app with NFC tag
     - [ ] history graphics
 
