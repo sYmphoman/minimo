@@ -53,6 +53,7 @@ http://avdweb.nl/Article_files/Solarbike/Motor-controller/China-BLDC-motor-contr
     - [ ] Current loop regulation
     - [ ] Save settings in non volatile memory
     - [ ] Custom acceleration curve
+    - [ ] Electric brake display with full battery
     - [ ] Data logging
 - [ ] Android app
     - [X] display : speed, mode, voltage, current, power, brake mode (PA)
