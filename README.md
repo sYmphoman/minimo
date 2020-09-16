@@ -37,10 +37,10 @@ http://avdweb.nl/Article_files/Solarbike/Motor-controller/China-BLDC-motor-contr
     - [X] Decode speed/mode/brake/regulator from serial link
 - [ ] Serial Kaabo / Zero / Appolo
 - [ ] Bluetooth 
-    - [X] communication with Android
-    - [X] Bluetooth anti-theth with smartphone
-    - [X] Bluetooth anti-theth with beacon (scan & rssi detection)
-    - [ ] Bluetooth devices parameters and security
+    - [X] Communication with Android
+    - [X] Anti-theth with smartphone
+    - [X] Anti-theth with beacon (scan & rssi detection)
+    - [ ] SmartLCD controller devices parameters and security
 - [ ] Other inputs/outputs
     - [X] Read current with WCS1700
     - [X] Read battery voltage
