@@ -44,8 +44,9 @@ http://avdweb.nl/Article_files/Solarbike/Motor-controller/China-BLDC-motor-contr
 - [ ] Other inputs/outputs
     - [X] Read current with WCS1700
     - [X] Read battery voltage
-    - [ ] Read break handle position
-    - [ ] Read tempertature/humidity with DHT11
+    - [X] Read tempertature/humidity with DHT11
+    - [X] Read break handle position on serial
+    - [ ] Read break handle position on brake handle
 - [ ] Features    
     - [X] Progressive electric braking (software detection)
     - [ ] Progressive electric braking (hardware detection)
@@ -63,7 +64,7 @@ http://avdweb.nl/Article_files/Solarbike/Motor-controller/China-BLDC-motor-contr
     - [X] auto-launch app with NFC tag
     - [ ] parameters override (P5/P6/P7/...)
     - [ ] parameters custom settings
-    - [ ] display : time, moving time, max speed, max power, max current
+    - [ ] display : time, moving time, max speed, max power, max current, temperature, humidity
     - [ ] history graphics
 
 - [ ] iPhone app => for someone else
