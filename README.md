@@ -50,6 +50,7 @@ http://avdweb.nl/Article_files/Solarbike/Motor-controller/China-BLDC-motor-contr
     - [ ] Progressive electric braking (work in progress)
     - [ ] Customize modes with different power / max speed
     - [ ] Remote physical button to change mode (or other features)
+    - [ ] Speed loop regulation
     - [ ] Current loop regulation
     - [ ] Save settings in non volatile memory
     - [ ] Custom acceleration curve
