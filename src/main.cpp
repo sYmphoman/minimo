@@ -9,6 +9,8 @@
 
 #include "MedianFilter.h"
 
+#include <dht_nonblocking.h>
+
 //////------------------------------------
 ////// Defines
 
@@ -21,6 +23,7 @@
 #define DEBUG_DISPLAY_BRAKE 0
 #define DEBUG_DISPLAY_BUTTON1 0
 #define DEBUG_DISPLAY_BUTTON2 0
+#define DEBUG_DISPLAY_DHT 0
 #define DEBUG_SERIAL_CHECKSUM_LCD_TO_CNTRL 0
 #define DEBUG_SERIAL_CHECKSUM_CNTRL_TO_LCD 0
 
@@ -28,11 +31,12 @@
 #define PIN_SERIAL_ESP_TO_CNTRL 26
 #define PIN_SERIAL_CNTRL_TO_ESP 34
 #define PIN_SERIAL_ESP_TO_LCD 13
-#define PIN_IN_BRAKE 27
+#define PIN_IN_BRAKE 12
 #define PIN_IN_VOLTAGE 33
 #define PIN_IN_CURRENT 35
 #define PIN_IN_BUTTON1 9
 #define PIN_IN_BUTTON2 10
+#define PIN_IN_DH12 27
 
 #define MODE_LCD_TO_CNTRL 0
 #define MODE_CNTRL_TO_LCD 1
@@ -53,6 +57,8 @@
 #define CURRENT_STATUS_CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a4"
 #define POWER_STATUS_CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a5"
 #define BTLOCK_STATUS_CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a6"
+#define TEMPERATURE_STATUS_CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a7"
+#define HUMIDITY_STATUS_CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
 
 //////------------------------------------
 ////// Variables
@@ -72,10 +78,15 @@ char data_speed_buffer[4];
 HardwareSerial hwSerCntrlToLcd(1);
 HardwareSerial hwSerLcdToCntrl(2);
 
+DHT_nonblocking dht_sensor(PIN_IN_DH12, DHT_TYPE_11);
+
 int i_loop = 0;
 
 bool bleLock = false;
 bool blePicclyVisible = true;
+
+float currentHumidity = 0.0;
+float currentTemperature = 0.0;
 
 int i_LcdToCntrl = 0;
 int i_CntrlToLcd = 0;
@@ -114,6 +125,8 @@ BLECharacteristic *pCharacteristicVoltageStatus = NULL;
 BLECharacteristic *pCharacteristicCurrentStatus = NULL;
 BLECharacteristic *pCharacteristicPowerStatus = NULL;
 BLECharacteristic *pCharacteristicBtlockStatus = NULL;
+BLECharacteristic *pCharacteristicTemperatureStatus = NULL;
+BLECharacteristic *pCharacteristicHumidityStatus = NULL;
 
 bool deviceConnected = false;
 bool oldDeviceConnected = false;
@@ -311,6 +324,26 @@ class BLECharacteristicCallback : public BLECharacteristicCallbacks
       Serial.print("Read bleLock : ");
       Serial.println(print_buffer);
     }
+    else if (pCharacteristic->getUUID().toString() == TEMPERATURE_STATUS_CHARACTERISTIC_UUID)
+    {
+      int32_t temp = currentTemperature * 1000.0;
+      pCharacteristicTemperatureStatus->setValue((uint8_t *)&temp, 4);
+
+      char print_buffer[500];
+      sprintf(print_buffer, "%f", currentTemperature);
+      Serial.print("Read currentTemperature : ");
+      Serial.println(print_buffer);
+    }
+    else if (pCharacteristic->getUUID().toString() == HUMIDITY_STATUS_CHARACTERISTIC_UUID)
+    {
+      int32_t temp = currentHumidity * 1000.0;
+      pCharacteristicHumidityStatus->setValue((uint8_t *)&temp, 4);
+
+      char print_buffer[500];
+      sprintf(print_buffer, "%f", currentHumidity);
+      Serial.print("Read currentHumidity : ");
+      Serial.println(print_buffer);
+    }
   }
 };
 
@@ -389,6 +422,9 @@ void setupPins()
   pinMode(PIN_IN_BUTTON2, INPUT_PULLUP);
   pinMode(PIN_IN_VOLTAGE, INPUT);
   pinMode(PIN_IN_CURRENT, INPUT);
+
+  //pinMode(PIN_IN_DH12, INPUT_PULLUP);
+  pinMode(14, OUTPUT);
 }
 
 void setupBLE()
@@ -441,6 +477,16 @@ void setupBLE()
       BLECharacteristic::PROPERTY_NOTIFY |
           BLECharacteristic::PROPERTY_READ);
 
+  pCharacteristicTemperatureStatus = pService->createCharacteristic(
+      TEMPERATURE_STATUS_CHARACTERISTIC_UUID,
+      BLECharacteristic::PROPERTY_NOTIFY |
+          BLECharacteristic::PROPERTY_READ);
+
+  pCharacteristicHumidityStatus = pService->createCharacteristic(
+      HUMIDITY_STATUS_CHARACTERISTIC_UUID,
+      BLECharacteristic::PROPERTY_NOTIFY |
+          BLECharacteristic::PROPERTY_READ);
+
   pCharacteristicSpeed->addDescriptor(new BLE2902());
   pCharacteristicMode->addDescriptor(new BLE2902());
   pCharacteristicBrakeSentOrder->addDescriptor(new BLE2902());
@@ -448,6 +494,8 @@ void setupBLE()
   pCharacteristicCurrentStatus->addDescriptor(new BLE2902());
   pCharacteristicPowerStatus->addDescriptor(new BLE2902());
   pCharacteristicBtlockStatus->addDescriptor(new BLE2902());
+  pCharacteristicTemperatureStatus->addDescriptor(new BLE2902());
+  pCharacteristicHumidityStatus->addDescriptor(new BLE2902());
 
   pCharacteristicSpeed->setCallbacks(new BLECharacteristicCallback());
   pCharacteristicMode->setCallbacks(new BLECharacteristicCallback());
@@ -456,6 +504,8 @@ void setupBLE()
   pCharacteristicCurrentStatus->setCallbacks(new BLECharacteristicCallback());
   pCharacteristicPowerStatus->setCallbacks(new BLECharacteristicCallback());
   pCharacteristicBtlockStatus->setCallbacks(new BLECharacteristicCallback());
+  pCharacteristicTemperatureStatus->setCallbacks(new BLECharacteristicCallback());
+  pCharacteristicHumidityStatus->setCallbacks(new BLECharacteristicCallback());
 
   // Start the service
   pService->start();
@@ -497,15 +547,15 @@ void setup()
 
   Serial.println(PSTR("   serial ..."));
   setupSerial();
-  delay(100);
+  delay(10);
 
   Serial.println(PSTR("   BLE ..."));
   setupBLE();
-  delay(100);
+  delay(10);
 
   Serial.println(PSTR("   pins ..."));
   setupPins();
-  delay(100);
+  delay(10);
 
   // End off setup
   Serial.println("setup --- end");
@@ -674,7 +724,6 @@ uint8_t getBrakeFromLCD(char var, char data_buffer[])
   uint8_t brake = (var - data_buffer[3]) & 0x20;
   uint8_t brakeStatusNew = brake >> 5;
 
-
   //uint8_t brakeStatusNew = brakeStatus;
   if ((brakeStatusNew == 1) && (brakeStatusOld == 0))
   {
@@ -731,7 +780,7 @@ uint8_t getBrakeFromLCD(char var, char data_buffer[])
 uint8_t modifyBrake(char var, char data_buffer[])
 {
 
- uint32_t currentTime = millis();
+  uint32_t currentTime = millis();
 
   if (brakeStatus == 1)
   {
@@ -1095,6 +1144,43 @@ void processButton2()
   button2Status = digitalRead(PIN_IN_BUTTON2);
 }
 
+void processDHT()
+{
+  static unsigned long measurement_timestamp = millis();
+
+  /* Measure once every four seconds. */
+  if (millis() - measurement_timestamp > 4000ul)
+  {
+
+    float temperature;
+    float humidity;
+
+    if (dht_sensor.measure(&temperature, &humidity) == true)
+    {
+      measurement_timestamp = millis();
+
+#if DEBUG_DISPLAY_DHT
+      Serial.print("T = ");
+      Serial.print(temperature, 1);
+      Serial.print(" deg. C, H = ");
+      Serial.print(humidity, 1);
+      Serial.println("%");
+#endif
+
+      currentTemperature = temperature;
+      currentHumidity = humidity;
+
+      uint32_t temp = temperature * 1000;
+      pCharacteristicTemperatureStatus->setValue((uint8_t *)&temp, 4);
+      pCharacteristicTemperatureStatus->notify();
+
+      temp = humidity * 1000;
+      pCharacteristicHumidityStatus->setValue((uint8_t *)&temp, 4);
+      pCharacteristicHumidityStatus->notify();
+    }
+  }
+}
+
 void processVoltage()
 {
 
@@ -1150,6 +1236,14 @@ void loop()
     //processBrake();
     //displayBrake();
   }
+
+  if (i_loop % 1000 == 1)
+  {
+    /* Measure temperature and humidity.  If the functions returns
+     true, then a measurement is available. */
+    processDHT();
+  }
+
   if (i_loop % 10 == 1)
   {
     processCurrent();
@@ -1158,6 +1252,8 @@ void loop()
   // Give a time for ESP
   delay(1);
   i_loop++;
+
+  digitalWrite(14, i_loop % 2);
 
   timeLoop = millis();
 }
