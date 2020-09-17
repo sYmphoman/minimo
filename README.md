@@ -47,7 +47,8 @@ http://avdweb.nl/Article_files/Solarbike/Motor-controller/China-BLDC-motor-contr
     - [ ] Read break handle position
     - [ ] Read tempertature/humidity with DHT11
 - [ ] Features    
-    - [ ] Progressive electric braking (work in progress)
+    - [X] Progressive electric braking (software detection)
+    - [ ] Progressive electric braking (hardware detection)
     - [ ] Customize modes with different power / max speed
     - [ ] Remote physical button to change mode (or other features)
     - [ ] Speed loop regulation
