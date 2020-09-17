@@ -28,7 +28,7 @@
 #define PIN_SERIAL_ESP_TO_CNTRL 26
 #define PIN_SERIAL_CNTRL_TO_ESP 34
 #define PIN_SERIAL_ESP_TO_LCD 13
-#define PIN_IN_BRAKE 12
+#define PIN_IN_BRAKE 27
 #define PIN_IN_VOLTAGE 33
 #define PIN_IN_CURRENT 35
 #define PIN_IN_BUTTON1 9
@@ -94,9 +94,10 @@ uint8_t modeOrder = 2;
 
 uint8_t brakeStatus = 0;
 uint8_t brakeStatusOld = 0;
-uint8_t breakeMin = 2;
+uint8_t breakeMin = 0;
 uint8_t breakeMax = 4;
 uint8_t breakeSentOrder = breakeMin;
+uint32_t breakeTimeBetweenShifts = 500;
 
 uint8_t button1Status = 0;
 uint8_t button2Status = 0;
@@ -668,18 +669,23 @@ uint8_t modifyPower(char var, char data_buffer[])
   return newPower;
 }
 
-uint8_t modifyBrake(char var, char data_buffer[])
+uint8_t getBrakeFromLCD(char var, char data_buffer[])
 {
-  /*
-  uint8_t brakeStatusNew = !digitalRead(PIN_IN_BREAK);
 
+  uint8_t brake = (var - data_buffer[3]) & 0x20;
+  uint8_t brakeStatusNew = brake >> 5;
+
+
+  //uint8_t brakeStatusNew = brakeStatus;
   if ((brakeStatusNew == 1) && (brakeStatusOld == 0))
   {
     brakeStatus = brakeStatusNew;
-    timeLastBrake = timeLoop;
+    timeLastBrake = millis();
 
+#if DEBUG_DISPLAY_BRAKE
     Serial.print("Brake pressed at : ");
     Serial.println(timeLastBrake);
+#endif
 
     // notify bluetooth
     pCharacteristicBrakeSentOrder->setValue((uint8_t *)&breakeSentOrder, 1);
@@ -692,31 +698,66 @@ uint8_t modifyBrake(char var, char data_buffer[])
     // reset to min
     breakeSentOrder = breakeMin;
 
+#if DEBUG_DISPLAY_BRAKE
     Serial.print("Brake released at : ");
-    Serial.println(timeLoop);
+    Serial.println(millis());
+#endif
 
     // notify bluetooth
     pCharacteristicBrakeSentOrder->setValue((uint8_t *)&breakeSentOrder, 1);
     pCharacteristicBrakeSentOrder->notify();
   }
 
+  brakeStatusOld = brakeStatusNew;
+  brakeStatus = brakeStatusNew;
+
+  /*
+  char print_buffer[500];
+  sprintf(print_buffer, "%s %02x / %s %02x / %s %02x",
+          "var",
+          var,
+          "data_buffer[3]",
+          data_buffer[3],
+          "brake",
+          brake);
+
+  Serial.print("Brake : ");
+  Serial.print(print_buffer);
+  Serial.println("");
+*/
+
+  return brake;
+}
+
+uint8_t modifyBrake(char var, char data_buffer[])
+{
+
+ uint32_t currentTime = millis();
+
   if (brakeStatus == 1)
   {
-    if (timeLoop - timeLastBrake > 1500)
+    if (breakeSentOrder < breakeMax)
     {
-      breakeSentOrder = breakeMin + 3;
-    }
-    else if (timeLoop - timeLastBrake > 1000)
-    {
-      breakeSentOrder = breakeMin + 2;
-    }
-    else if (timeLoop - timeLastBrake > 500)
-    {
-      breakeSentOrder = breakeMin + 1;
-    }
-    else
-    {
-      breakeSentOrder = breakeMin;
+      if (currentTime - timeLastBrake > breakeTimeBetweenShifts * 5)
+      {
+        breakeSentOrder = breakeMin + 5;
+      }
+      else if (currentTime - timeLastBrake > breakeTimeBetweenShifts * 4)
+      {
+        breakeSentOrder = breakeMin + 4;
+      }
+      else if (currentTime - timeLastBrake > breakeTimeBetweenShifts * 3)
+      {
+        breakeSentOrder = breakeMin + 3;
+      }
+      else if (currentTime - timeLastBrake > breakeTimeBetweenShifts * 2)
+      {
+        breakeSentOrder = breakeMin + 2;
+      }
+      else if (currentTime - timeLastBrake > breakeTimeBetweenShifts * 1)
+      {
+        breakeSentOrder = breakeMin + 1;
+      }
     }
 
     // notify bluetooth
@@ -727,27 +768,30 @@ uint8_t modifyBrake(char var, char data_buffer[])
   {
     breakeSentOrder = breakeMin;
   }
-  brakeStatusOld = brakeStatusNew;
 
+#if DEBUG_DISPLAY_BRAKE
   char print_buffer[500];
-  sprintf(print_buffer, "%s %02x %s %02x %s %02x %s %d %s %d",
-          "Brake Status New : ",
-          brakeStatusNew,
+  sprintf(print_buffer, "%s %02x %s %02x %s %02x %s %d %s %d %s %d",
+          "Brake Status : ",
+          brakeStatus,
           " / breakeSentOrder  : ",
           breakeSentOrder,
           " / Current LCD brake  : ",
           var,
           " / timeLastBrake  : ",
           timeLastBrake,
-          " / timeLoop  : ",
-          timeLoop);
+          " / currentTime  : ",
+          currentTime,
+          " / timeDiff  : ",
+          currentTime - timeLastBrake);
 
   Serial.println(print_buffer);
-*/
+#endif
+
   return breakeSentOrder;
 }
 
-uint8_t decodeOldSpeed()
+uint8_t decodeSpeed()
 {
   uint8_t high1 = (data_speed_buffer[2] - data_speed_buffer[0]) & 0xff;
   uint8_t offset_regul = (data_speed_buffer[1] - data_speed_buffer[0]) & 0xff;
@@ -843,6 +887,11 @@ int readHardSerial(int i, HardwareSerial *ss, int mode, char data_buffer[])
     //---------------------
     // MODIFY CNTRL_TO_LCD
 
+    if ((i == 4) && (mode == MODE_CNTRL_TO_LCD))
+    {
+      getBrakeFromLCD(var, data_buffer);
+    }
+
     // modify speed
     if ((i == 7) && (mode == MODE_CNTRL_TO_LCD))
     {
@@ -859,7 +908,7 @@ int readHardSerial(int i, HardwareSerial *ss, int mode, char data_buffer[])
       isModified_CntrlToLcd = 1;
 
       speedOld = speedCurrent;
-      speedCurrent = decodeOldSpeed();
+      speedCurrent = decodeSpeed();
     }
 
     // CHECKSUM
@@ -1084,16 +1133,13 @@ void loop()
   processSerial();
   processBLE();
 
-  processBrake();
-  //displayBrake();
-
   processButton1();
-#if DEBUG_DISPLAY_BUTTON1  
+#if DEBUG_DISPLAY_BUTTON1
   displayButton1();
 #endif
 
   processButton2();
-#if DEBUG_DISPLAY_BUTTON2 
+#if DEBUG_DISPLAY_BUTTON2
   displayButton2();
 #endif
 
@@ -1101,6 +1147,9 @@ void loop()
   {
     processVoltage();
     //processCurrent();
+
+    //processBrake();
+    //displayBrake();
   }
   if (i_loop % 10 == 1)
   {
