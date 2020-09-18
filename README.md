@@ -4,6 +4,7 @@ Warning : this is work in progress. I decline all responsability about using inf
 ## What is SmartLCD
 
 It's a combo of electronic and smartphone application. It extend all features from original Minimorots EYE LCD and controller.
+The electronic board will interract with most of the e-scooter electronic when you plug it.
 
 ### What can be done ?
 
