@@ -62,11 +62,11 @@ http://avdweb.nl/Article_files/Solarbike/Motor-controller/China-BLDC-motor-contr
     - [ ] Data logging
     - [ ] Advanced diagnosis (serial errors, throtle errors ...)
 - [ ] Android app
-    - [X] display : speed, mode, voltage, current, power, brake mode (PA)
+    - [X] display : speed, mode, voltage, current, power, brake mode (PA), max speed, max power, max current, temperature, humidity
     - [X] auto-launch app with NFC tag
     - [ ] profils with parameters override (P5/P6/P7/...)
-    - [ ] parameters custom settings
-    - [ ] display : time, moving time, max speed, max power, max current, temperature, humidity
+    - [X] parameters custom settings
+    - [ ] display : time, moving time
     - [ ] history graphics
 
 - [ ] iPhone app => for someone else
