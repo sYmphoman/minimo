@@ -28,6 +28,9 @@ The software is designed for ESP32 Dev Kit v4.
 ### Schematics
 https://easyeda.com/Koxx3/bettercontroller
 
+### Android application
+https://github.com/Koxx3/minimo_android
+
 ## Inspiration to understand controler electronic
 http://avdweb.nl/Article_files/Solarbike/Motor-controller/China-BLDC-motor-controller-36V-250W.pdf
 
