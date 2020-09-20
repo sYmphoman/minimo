@@ -1,3 +1,6 @@
+// TODO : checksum validation on first full frame
+// TODO : BT lock
+
 //////------------------------------------
 ////// Inludes
 
@@ -9,6 +12,7 @@
 #include <EEPROM.h>
 
 #include "main.h"
+#include "OTA_softap.h"
 #include "MedianFilter.h"
 #include "dht_nonblocking.h"
 
@@ -22,6 +26,8 @@
 #define DEBUG_DISPLAY_SPEED 0
 #define DEBUG_DISPLAY_MODE 0
 #define DEBUG_DISPLAY_BRAKE 0
+#define DEBUG_DISPLAY_ECO 0
+#define DEBUG_DISPLAY_ACCEL 0
 #define DEBUG_DISPLAY_BUTTON1 0
 #define DEBUG_DISPLAY_BUTTON2 0
 #define DEBUG_DISPLAY_CURRENT 0
@@ -48,7 +54,7 @@
 
 #define ANALOG_TO_VOLTS 43.48
 #define ANALOG_TO_CURRENT 35
-#define ANALOG_TO_CURRENT_MOYENNE_ZERO 1911
+#define NB_CURRENT_CALIB 3000
 
 #define EEPROM_SIZE 1024
 
@@ -67,6 +73,9 @@
 #define HUMIDITY_STATUS_CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
 #define SETTINGS_CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a9"
 #define SPEED_LIMITER_CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26aa"
+#define ECO_CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26ab"
+#define ACCEL_CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26ac"
+#define CURRENT_CALIB_CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26ad"
 
 //////------------------------------------
 ////// Variables
@@ -77,6 +86,7 @@
 struct field_s
 {
   /*
+  uint8_t Button_1_short_press_action = 0;
   uint8_t Button_1_short_press_action = 0;
   uint8_t Button_1_long_press_action = 0;
   uint8_t Button_2_short_press_action = 0;
@@ -100,6 +110,9 @@ struct field_s
   uint8_t Current_loop_max_current;
   uint8_t Speed_loop_mode;
   uint8_t Speed_limiter_at_startup;
+  uint8_t Wheel_size;
+  uint8_t Motor_pole_number;
+
 } __attribute__((packed));
 #pragma pack(pop)
 
@@ -152,12 +165,23 @@ uint8_t fakeSpeed = 25;
 uint8_t powerReduction = 0;
 
 uint8_t modeOrder = 3;
-uint8_t lcdMode = 0;
-uint8_t oldLcdMode = 0;
+uint8_t modeLcd = 0;
+uint8_t modeLcdOld = 0;
+
+uint8_t accelOrder = 0;
+uint8_t accelLcd = 0;
+uint8_t accelLcdOld = 0;
+
+uint8_t ecoOrder = 0;
+uint8_t ecoLcd = 0;
+uint8_t ecoLcdOld = 0;
 
 uint8_t brakeStatus = 0;
 uint8_t brakeStatusOld = 0;
 uint8_t breakeSentOrder = -1;
+
+uint8_t currentCalibOrder = 1;
+uint32_t iCurrentCalibOrder = 0;
 
 uint8_t button1Status = 0;
 uint8_t button2Status = 0;
@@ -180,13 +204,16 @@ BLECharacteristic *pCharacteristicTemperatureStatus = NULL;
 BLECharacteristic *pCharacteristicHumidityStatus = NULL;
 BLECharacteristic *pCharacteristicSettings = NULL;
 BLECharacteristic *pCharacteristicSpeedLimiter = NULL;
+BLECharacteristic *pCharacteristicEco = NULL;
+BLECharacteristic *pCharacteristicAccel = NULL;
+BLECharacteristic *pCharacteristicCurrentCalib = NULL;
 
 bool deviceConnected = false;
 bool oldDeviceConnected = false;
 BLEScan *pBLEScan;
 
 // BYTE 3 FROM LCD TO CONTRL ... for each sequence number // brute force
-const byte lcdMode0[256] = {0x80, 0x05, 0x06, 0x2b, 0x34, 0x29, 0x2a, 0x2f, 0x28, 0x2d, 0x2e, 0x53, 0x7c, 0x51, 0x52, 0x57, 0x50, 0x55, 0x56, 0x7b, 0x84, 0x79, 0x7a, 0x7f, 0x78,
+const byte modeLcd0[256] = {0x80, 0x05, 0x06, 0x2b, 0x34, 0x29, 0x2a, 0x2f, 0x28, 0x2d, 0x2e, 0x53, 0x7c, 0x51, 0x52, 0x57, 0x50, 0x55, 0x56, 0x7b, 0x84, 0x79, 0x7a, 0x7f, 0x78,
                             0x7d, 0x7e, 0x63, 0x0c, 0x61, 0x62, 0x67, 0x60, 0x65, 0x66, 0x0b, 0x14, 0x09, 0x0a, 0x0f, 0x08, 0x0d, 0x0e, 0x33, 0x5c, 0x31, 0x32, 0x37, 0x30, 0x35, 0x36, 0x5b, 0x64, 0x59, 0x5a,
                             0x5f, 0x58, 0x5d, 0x5e, 0x43, 0x6c, 0x41, 0x42, 0x47, 0x40, 0x45, 0x46, 0x6b, 0x74, 0x69, 0x6a, 0x6f, 0x68, 0x6d, 0x6e, 0x13, 0x3c, 0x11, 0x12, 0x17, 0x10, 0x15, 0x16, 0x3b,
                             0x44, 0x39, 0x3a, 0x3f, 0x38, 0x3d, 0x3e, 0x23, 0x4c, 0x21, 0x22, 0x27, 0x20, 0x25, 0x26, 0x4b, 0x54, 0x49, 0x4a, 0x4f, 0x48, 0x4d, 0x4e, 0x73, 0x1c, 0x71, 0x72, 0x77, 0x70,
@@ -195,7 +222,7 @@ const byte lcdMode0[256] = {0x80, 0x05, 0x06, 0x2b, 0x34, 0x29, 0x2a, 0x2f, 0x28
                             0x31, 0x32, 0x37, 0x30, 0x35, 0x36, 0x5b, 0x64, 0x59, 0x5a, 0x5f, 0x58, 0x5d, 0x5e, 0x43, 0x6c, 0x41, 0x42, 0x47, 0x40, 0x45, 0x46, 0x6b, 0x74, 0x69, 0x6a, 0x6f, 0x68, 0x6d,
                             0x6e, 0x13, 0x3c, 0x11, 0x12, 0x17, 0x10, 0x15, 0x16, 0x3b, 0x44, 0x39, 0x3a, 0x3f, 0x38, 0x3d, 0x3e, 0x23, 0x4c, 0x21, 0x22, 0x27, 0x20, 0x25, 0x26, 0x4b, 0x54, 0x49, 0x4a,
                             0x4f, 0x48, 0x4d, 0x4e, 0x73, 0x1c, 0x71, 0x72, 0x77, 0x70, 0x75, 0x76, 0x1b, 0x24, 0x19, 0x1a, 0x1f, 0x18, 0x1d, 0x1e, 0x83, 0x2c, 0x81, 0x82, 0x7};
-const byte lcdMode1[256] = {0x85, 0x0a, 0x0b, 0x30, 0x39, 0x2e, 0x2f, 0x34, 0x2d, 0x32, 0x33, 0x58, 0x81, 0x56, 0x57, 0x5c, 0x55, 0x5a, 0x5b, 0x80, 0x89, 0x7e, 0x7f, 0x84,
+const byte modeLcd1[256] = {0x85, 0x0a, 0x0b, 0x30, 0x39, 0x2e, 0x2f, 0x34, 0x2d, 0x32, 0x33, 0x58, 0x81, 0x56, 0x57, 0x5c, 0x55, 0x5a, 0x5b, 0x80, 0x89, 0x7e, 0x7f, 0x84,
                             0x7d, 0x82, 0x83, 0x68, 0x11, 0x66, 0x67, 0x6c, 0x65, 0x6a, 0x6b, 0x10, 0x19, 0x0e, 0x0f, 0x14, 0x0d, 0x12, 0x13, 0x38, 0x61, 0x36, 0x37, 0x3c, 0x35, 0x3a, 0x3b, 0x60, 0x69,
                             0x5e, 0x5f, 0x64, 0x5d, 0x62, 0x63, 0x48, 0x71, 0x46, 0x47, 0x4c, 0x45, 0x4a, 0x4b, 0x70, 0x79, 0x6e, 0x6f, 0x74, 0x6d, 0x72, 0x73, 0x18, 0x41, 0x16, 0x17, 0x1c, 0x15, 0x1a,
                             0x1b, 0x40, 0x49, 0x3e, 0x3f, 0x44, 0x3d, 0x42, 0x43, 0x28, 0x51, 0x26, 0x27, 0x2c, 0x25, 0x2a, 0x2b, 0x50, 0x59, 0x4e, 0x4f, 0x54, 0x4d, 0x52, 0x53, 0x78, 0x21, 0x76, 0x77,
@@ -204,7 +231,7 @@ const byte lcdMode1[256] = {0x85, 0x0a, 0x0b, 0x30, 0x39, 0x2e, 0x2f, 0x34, 0x2d
                             0x12, 0x13, 0x38, 0x61, 0x36, 0x37, 0x3c, 0x35, 0x3a, 0x3b, 0x60, 0x69, 0x5e, 0x5f, 0x64, 0x5d, 0x62, 0x63, 0x48, 0x71, 0x46, 0x47, 0x4c, 0x45, 0x4a, 0x4b, 0x70, 0x79, 0x6e,
                             0x6f, 0x74, 0x6d, 0x72, 0x73, 0x18, 0x41, 0x16, 0x17, 0x1c, 0x15, 0x1a, 0x1b, 0x40, 0x49, 0x3e, 0x3f, 0x44, 0x3d, 0x42, 0x43, 0x28, 0x51, 0x26, 0x27, 0x2c, 0x25, 0x2a, 0x2b,
                             0x50, 0x59, 0x4e, 0x4f, 0x54, 0x4d, 0x52, 0x53, 0x78, 0x21, 0x76, 0x77, 0x7c, 0x75, 0x7a, 0x7b, 0x20, 0x29, 0x1e, 0x1f, 0x24, 0x1d, 0x22, 0x23, 0x88, 0x31, 0x86, 0x87, 0x0c};
-const byte lcdMode2[256] = {0x8a, 0x0f, 0x10, 0x35, 0x3e, 0x33, 0x34, 0x39, 0x32, 0x37, 0x38, 0x5d, 0x86, 0x5b, 0x5c, 0x61, 0x5a, 0x5f, 0x60, 0x85, 0x8e, 0x83, 0x84, 0x89, 0x82, 0x87,
+const byte modeLcd2[256] = {0x8a, 0x0f, 0x10, 0x35, 0x3e, 0x33, 0x34, 0x39, 0x32, 0x37, 0x38, 0x5d, 0x86, 0x5b, 0x5c, 0x61, 0x5a, 0x5f, 0x60, 0x85, 0x8e, 0x83, 0x84, 0x89, 0x82, 0x87,
                             0x88, 0x6d, 0x16, 0x6b, 0x6c, 0x71, 0x6a, 0x6f, 0x70, 0x15, 0x1e, 0x13, 0x14, 0x19, 0x12, 0x17, 0x18, 0x3d, 0x66, 0x3b, 0x3c, 0x41, 0x3a, 0x3f, 0x40, 0x65, 0x6e, 0x63, 0x64,
                             0x69, 0x62, 0x67, 0x68, 0x4d, 0x76, 0x4b, 0x4c, 0x51, 0x4a, 0x4f, 0x50, 0x75, 0x7e, 0x73, 0x74, 0x79, 0x72, 0x77, 0x78, 0x1d, 0x46, 0x1b, 0x1c, 0x21, 0x1a, 0x1f, 0x20, 0x45,
                             0x4e, 0x43, 0x44, 0x49, 0x42, 0x47, 0x48, 0x2d, 0x56, 0x2b, 0x2c, 0x31, 0x2a, 0x2f, 0x30, 0x55, 0x5e, 0x53, 0x54, 0x59, 0x52, 0x57, 0x58, 0x7d, 0x26, 0x7b, 0x7c, 0x81, 0x7a,
@@ -347,6 +374,44 @@ class BLECharacteristicCallback : public BLECharacteristicCallbacks
       pCharacteristicSpeedLimiter->setValue((uint8_t *)&speedLimiter, 1);
       pCharacteristicSpeedLimiter->notify();
     }
+    else if (pCharacteristic->getUUID().toString() == ECO_CHARACTERISTIC_UUID)
+    {
+      std::string rxValue = pCharacteristic->getValue();
+      ecoOrder = rxValue[0];
+
+      char print_buffer[500];
+      sprintf(print_buffer, "%02x", ecoOrder);
+      Serial.print("Write eco : ");
+      Serial.println(print_buffer);
+
+      // notify of current value
+      pCharacteristicEco->setValue((uint8_t *)&ecoOrder, 1);
+      pCharacteristicEco->notify();
+    }
+    else if (pCharacteristic->getUUID().toString() == ACCEL_CHARACTERISTIC_UUID)
+    {
+      std::string rxValue = pCharacteristic->getValue();
+      accelOrder = rxValue[0];
+
+      char print_buffer[500];
+      sprintf(print_buffer, "%02x", accelOrder);
+      Serial.print("Write accel : ");
+      Serial.println(print_buffer);
+
+      // notify of current value
+      pCharacteristicAccel->setValue((uint8_t *)&accelOrder, 1);
+      pCharacteristicAccel->notify();
+    }
+    else if (pCharacteristic->getUUID().toString() == CURRENT_CALIB_CHARACTERISTIC_UUID)
+    {
+      std::string rxValue = pCharacteristic->getValue();
+      currentCalibOrder = rxValue[0];
+
+      char print_buffer[500];
+      sprintf(print_buffer, "%02x", currentCalibOrder);
+      Serial.print("Write currentCalibOrder : ");
+      Serial.println(print_buffer);
+    }
   }
 
   void onRead(BLECharacteristic *pCharacteristic)
@@ -447,6 +512,24 @@ class BLECharacteristicCallback : public BLECharacteristicCallbacks
       char print_buffer[500];
       sprintf(print_buffer, "%d", speedLimiter);
       Serial.print("Read speedLimiter : ");
+      Serial.println(print_buffer);
+    }
+    else if (pCharacteristic->getUUID().toString() == ECO_CHARACTERISTIC_UUID)
+    {
+      pCharacteristicEco->setValue((uint8_t *)&ecoOrder, 1);
+
+      char print_buffer[500];
+      sprintf(print_buffer, "%d", ecoOrder);
+      Serial.print("Read eco : ");
+      Serial.println(print_buffer);
+    }
+    else if (pCharacteristic->getUUID().toString() == ACCEL_CHARACTERISTIC_UUID)
+    {
+      pCharacteristicAccel->setValue((uint8_t *)&accelOrder, 1);
+
+      char print_buffer[500];
+      sprintf(print_buffer, "%d", accelOrder);
+      Serial.print("Read accel : ");
       Serial.println(print_buffer);
     }
   }
@@ -550,7 +633,7 @@ void setupBLE()
   pServer->setCallbacks(new BLEServerCallback());
 
   // Create the BLE Service
-  BLEService *pService = pServer->createService(BLEUUID(SERVICE_UUID), 40);
+  BLEService *pService = pServer->createService(BLEUUID(SERVICE_UUID), 50);
 
   // Create a BLE Characteristic
   pCharacteristicSpeed = pService->createCharacteristic(
@@ -610,6 +693,24 @@ void setupBLE()
           BLECharacteristic::PROPERTY_WRITE |
           BLECharacteristic::PROPERTY_READ);
 
+  pCharacteristicEco = pService->createCharacteristic(
+      ECO_CHARACTERISTIC_UUID,
+      BLECharacteristic::PROPERTY_NOTIFY |
+          BLECharacteristic::PROPERTY_WRITE |
+          BLECharacteristic::PROPERTY_READ);
+
+  pCharacteristicAccel = pService->createCharacteristic(
+      ACCEL_CHARACTERISTIC_UUID,
+      BLECharacteristic::PROPERTY_NOTIFY |
+          BLECharacteristic::PROPERTY_WRITE |
+          BLECharacteristic::PROPERTY_READ);
+
+  pCharacteristicCurrentCalib = pService->createCharacteristic(
+      CURRENT_CALIB_CHARACTERISTIC_UUID,
+      BLECharacteristic::PROPERTY_NOTIFY |
+          BLECharacteristic::PROPERTY_WRITE |
+          BLECharacteristic::PROPERTY_READ);
+
   pCharacteristicSpeed->addDescriptor(new BLE2902());
   pCharacteristicMode->addDescriptor(new BLE2902());
   pCharacteristicBrakeSentOrder->addDescriptor(new BLE2902());
@@ -621,6 +722,9 @@ void setupBLE()
   pCharacteristicHumidityStatus->addDescriptor(new BLE2902());
   pCharacteristicSettings->addDescriptor(new BLE2902());
   pCharacteristicSpeedLimiter->addDescriptor(new BLE2902());
+  pCharacteristicEco->addDescriptor(new BLE2902());
+  pCharacteristicAccel->addDescriptor(new BLE2902());
+  pCharacteristicCurrentCalib->addDescriptor(new BLE2902());
 
   pCharacteristicSpeed->setCallbacks(new BLECharacteristicCallback());
   pCharacteristicMode->setCallbacks(new BLECharacteristicCallback());
@@ -633,6 +737,9 @@ void setupBLE()
   pCharacteristicHumidityStatus->setCallbacks(new BLECharacteristicCallback());
   pCharacteristicSettings->setCallbacks(new BLECharacteristicCallback());
   pCharacteristicSpeedLimiter->setCallbacks(new BLECharacteristicCallback());
+  pCharacteristicEco->setCallbacks(new BLECharacteristicCallback());
+  pCharacteristicAccel->setCallbacks(new BLECharacteristicCallback());
+  pCharacteristicCurrentCalib->setCallbacks(new BLECharacteristicCallback());
 
   // Start the service
   pService->start();
@@ -665,6 +772,11 @@ void setupSerial()
 void setupEPROMM()
 {
   EEPROM.begin(EEPROM_SIZE);
+}
+
+void setupOTA()
+{
+  OTA_setup();
 }
 
 void initDataWithSettings()
@@ -704,6 +816,11 @@ void setup()
   Serial.println(PSTR("   init data with settings ..."));
   initDataWithSettings();
 
+/*
+  Serial.println(PSTR("   setup OTA ..."));
+  setupOTA();
+*/
+
   // End off setup
   Serial.println("setup --- end");
 }
@@ -714,8 +831,9 @@ void setup()
 
 void saveSettings()
 {
-  Serial.print("saveSettings");
-  Serial.println(sizeof(settings));
+  Serial.print("saveSettings : ");
+  Serial.print(sizeof(settings));
+  Serial.println(" bytes");
 
   EEPROM.writeBytes(0, settings.buffer, sizeof(settings));
   EEPROM.commit();
@@ -772,6 +890,10 @@ void displaySettings()
   Serial.println(settings.fields.Speed_loop_mode);
   Serial.print("// Speed_limiter_at_startup : ");
   Serial.println(settings.fields.Speed_limiter_at_startup);
+  Serial.print("// Wheel_size : ");
+  Serial.println(settings.fields.Wheel_size);
+  Serial.print("// Motor_pole_number : ");
+  Serial.println(settings.fields.Motor_pole_number);
 }
 
 void displayFrame(int mode, char data_buffer[], byte checksum)
@@ -832,29 +954,31 @@ void displayMode(char data_buffer[])
 {
 
   uint32_t byteDiff = (data_buffer[5] - data_buffer[2]);
-  uint8_t lcdMode = byteDiff & 0x03;
-  uint8_t lcdMode2 = (byteDiff >> 2) & 0x1;
-  uint8_t lcdMode3 = (byteDiff >> 3) & 0x1;
-  uint8_t lcdMode4 = (byteDiff >> 4) & 0x1;
-  uint8_t lcdMode5 = (byteDiff >> 5) & 0x1;
-  uint8_t lcdMode6 = (byteDiff >> 6) & 0x1;
-  uint8_t lcdMode7 = (byteDiff >> 7) & 0x1;
+  uint8_t modeLcd = byteDiff & 0x03;
+  uint8_t modeLcd2 = (byteDiff >> 2) & 0x1;
+  uint8_t modeLcd3 = (byteDiff >> 3) & 0x1;
+  uint8_t modeLcd4 = (byteDiff >> 4) & 0x1;
+  uint8_t modeLcd5 = (byteDiff >> 5) & 0x1;
+  uint8_t modeLcd6 = (byteDiff >> 6) & 0x1;
+  uint8_t modeLcd7 = (byteDiff >> 7) & 0x1;
 
   char print_buffer[500];
-  sprintf(print_buffer, "%02x %02x / %02x / %02x / %02x / %02x / %02x / %02x / %02x", data_buffer[2], data_buffer[5], lcdMode, lcdMode2, lcdMode3, lcdMode4, lcdMode5, lcdMode6, lcdMode7);
+  sprintf(print_buffer, "%02x %02x / %02x / %02x / %02x / %02x / %02x / %02x / %02x", data_buffer[2], data_buffer[5], modeLcd, modeLcd2, modeLcd3, modeLcd4, modeLcd5, modeLcd6, modeLcd7);
 
+#if DEBUG_DISPLAY_MODE
   Serial.print("LCD mode : ");
   Serial.print(print_buffer);
   Serial.println("");
+#endif
 }
 
 uint8_t modifyModeOld(char var, char data_buffer[])
 {
   uint32_t byteDiff = (var - data_buffer[2]);
-  uint8_t lcdMode = byteDiff & 0x03;
-  uint8_t lcdModeMask = byteDiff & 0xfc;
-  uint8_t newLcdMode2 = modeOrder | lcdModeMask;
-  uint32_t newLcdMode3 = (newLcdMode2 + data_buffer[2]) & 0xff;
+  uint8_t modeLcd = byteDiff & 0x03;
+  uint8_t modeLcdMask = byteDiff & 0xfc;
+  uint8_t newmodeLcd2 = modeOrder | modeLcdMask;
+  uint32_t newmodeLcd3 = (newmodeLcd2 + data_buffer[2]) & 0xff;
 
   char print_buffer[500];
   /*
@@ -864,20 +988,20 @@ uint8_t modifyModeOld(char var, char data_buffer[])
           "byteDiff",
           byteDiff,
           "lcd",
-          lcdMode,
+          modeLcd,
           "mask",
-          lcdModeMask,
+          modeLcdMask,
           "order",
           orderMode,
-          "newLcdMode2",
-          newLcdMode2,
-          "newLcdMode3",
-          newLcdMode3);
+          "newmodeLcd2",
+          newmodeLcd2,
+          "newmodeLcd3",
+          newmodeLcd3);
           */
 
   sprintf(print_buffer, "%s %02x / %s %02x",
           "lcd",
-          lcdMode,
+          modeLcd,
           "order",
           modeOrder);
 
@@ -885,42 +1009,58 @@ uint8_t modifyModeOld(char var, char data_buffer[])
   Serial.print(print_buffer);
   Serial.println("");
 
-  return newLcdMode3;
+  return newmodeLcd3;
 }
 
 uint8_t getMode(char var, char data_buffer[])
 {
   uint32_t byteDiff = (var - data_buffer[2]);
-  uint8_t lcdMode = (byteDiff & 0x03) + 1;
+  uint8_t modeLcd = (byteDiff & 0x03) + 1;
 
   char print_buffer[500];
   sprintf(print_buffer, "%s %02x / %s %02x",
           "lcd",
-          lcdMode,
+          modeLcd,
           "order",
           modeOrder);
 
+#if DEBUG_DISPLAY_MODE
   Serial.print("LCD mode : ");
   Serial.print(print_buffer);
   Serial.println("");
+#endif
 
-  return lcdMode;
+  return modeLcd;
 }
 
 uint8_t modifyMode(char var, char data_buffer[])
 {
-  uint8_t newLcdMode3;
+  uint8_t newmodeLcd3;
+
+  uint32_t byteDiff = (var - data_buffer[2]);
+  uint8_t modeLcd = (byteDiff & 0x03) + 1;
+
+  // override Smartphone mode with LCD mode
+  if (modeLcdOld != modeLcd)
+  {
+    modeOrder = modeLcd;
+    modeLcdOld = modeLcd;
+
+    // notify bluetooth
+    pCharacteristicMode->setValue((uint8_t *)&modeOrder, 1);
+    pCharacteristicMode->notify();
+  }
 
   if (modeOrder == 1)
-    newLcdMode3 = lcdMode0[(uint8_t)(data_buffer[2])];
+    newmodeLcd3 = modeLcd0[(uint8_t)(data_buffer[2])];
   else if (modeOrder == 2)
-    newLcdMode3 = lcdMode1[(uint8_t)(data_buffer[2])];
+    newmodeLcd3 = modeLcd1[(uint8_t)(data_buffer[2])];
   else if (modeOrder == 3)
-    newLcdMode3 = lcdMode2[(uint8_t)(data_buffer[2])];
+    newmodeLcd3 = modeLcd2[(uint8_t)(data_buffer[2])];
   else
-    newLcdMode3 = lcdMode2[(uint8_t)(data_buffer[2])];
+    newmodeLcd3 = modeLcd2[(uint8_t)(data_buffer[2])];
 
-  return newLcdMode3;
+  return newmodeLcd3;
 }
 
 uint8_t modifyPower(char var, char data_buffer[])
@@ -1083,14 +1223,80 @@ uint8_t modifyBrake(char var, char data_buffer[])
   return breakeSentOrder;
 }
 
-uint8_t decodeSpeed()
+uint8_t modifyEco(char var, char data_buffer[])
+{
+
+  ecoLcd = var;
+  var = ecoOrder;
+
+  // override Smartphone mode with LCD mode
+  if (ecoLcd != ecoLcdOld)
+  {
+    ecoOrder = ecoLcd;
+    ecoLcdOld = ecoLcd;
+
+    // notify bluetooth
+    pCharacteristicEco->setValue((uint8_t *)&ecoOrder, 1);
+    pCharacteristicEco->notify();
+  }
+
+#if DEBUG_DISPLAY_ECO
+  char print_buffer[500];
+  sprintf(print_buffer, "%s %02x",
+          "Eco Status : ",
+          var);
+
+  Serial.println(print_buffer);
+#endif
+
+  return var;
+}
+
+uint8_t modifyAccel(char var, char data_buffer[])
+{
+
+  accelLcd = var;
+  var = accelOrder;
+
+  // override Smartphone mode with LCD mode
+  if (accelLcd != accelLcdOld)
+  {
+    accelOrder = accelLcd;
+    accelLcdOld = accelLcd;
+
+    // notify bluetooth
+    pCharacteristicAccel->setValue((uint8_t *)&accelOrder, 1);
+    pCharacteristicAccel->notify();
+
+    /*
+    Serial.print("Accel ==> notify new accelOrder : ");
+    Serial.println(accelOrder);
+*/
+  }
+
+#if DEBUG_DISPLAY_ACCEL
+  char print_buffer[500];
+  sprintf(print_buffer, "%s %02x",
+          "Accel Status : ",
+          var);
+
+  Serial.println(print_buffer);
+#endif
+
+  return var;
+}
+
+uint8_t getSpeed()
 {
   uint8_t high1 = (data_speed_buffer[2] - data_speed_buffer[0]) & 0xff;
   uint8_t offset_regul = (data_speed_buffer[1] - data_speed_buffer[0]) & 0xff;
   uint8_t high2 = (high1 - offset_regul) & 0xff;
   uint8_t low = (data_speed_buffer[3] - data_speed_buffer[0]);
 
-  int speed = (((int)high2 * 256) + (low)) / 20.5;
+  //  int speed = (((int)high2 * 256) + (low)) / 20.5;
+
+  int speed = (((int)high2 * 256) + (low));
+  speed = speed * (settings.fields.Wheel_size / 10.0) / settings.fields.Motor_pole_number / 10.5;
 
   return speed;
 }
@@ -1159,19 +1365,6 @@ int readHardSerial(int i, HardwareSerial *ss, int serialMode, char data_buffer[]
     // MODIFY LCD_TO_CNTRL
     if ((i == 5) && (serialMode == MODE_LCD_TO_CNTRL))
     {
-      //var = modifyMode(var, data_buffer);
-      lcdMode = getMode(var, data_buffer);
-
-      // override Smartphone mode with LCD mode
-      if (oldLcdMode != lcdMode)
-      {
-        modeOrder = lcdMode;
-        oldLcdMode = lcdMode;
-
-        // notify bluetooth
-        pCharacteristicMode->setValue((uint8_t *)&modeOrder, 1);
-        pCharacteristicMode->notify();
-      }
 
       var = modifyMode(var, data_buffer);
       isModified_LcdToCntrl = 1;
@@ -1186,6 +1379,18 @@ int readHardSerial(int i, HardwareSerial *ss, int serialMode, char data_buffer[]
     if ((i == 10) && (serialMode == MODE_LCD_TO_CNTRL))
     {
       var = modifyBrake(var, data_buffer);
+      isModified_LcdToCntrl = 1;
+    }
+
+    if ((i == 11) && (serialMode == MODE_LCD_TO_CNTRL))
+    {
+      var = modifyEco(var, data_buffer);
+      isModified_LcdToCntrl = 1;
+    }
+
+    if ((i == 12) && (serialMode == MODE_LCD_TO_CNTRL))
+    {
+      var = modifyAccel(var, data_buffer);
       isModified_LcdToCntrl = 1;
     }
 
@@ -1213,7 +1418,7 @@ int readHardSerial(int i, HardwareSerial *ss, int serialMode, char data_buffer[]
       isModified_CntrlToLcd = 1;
 
       speedOld = speedCurrent;
-      speedCurrent = decodeSpeed();
+      speedCurrent = getSpeed();
     }
 
     // CHECKSUM
@@ -1457,17 +1662,23 @@ void processCurrent()
   int curerntRead = analogRead(PIN_IN_CURRENT);
   int currentInMillamps = (curerntRead - currentFilterInit.getMean()) * 1000 / ANALOG_TO_CURRENT;
 
-// current rest value
+  // current rest value
   currentFilter.in(currentInMillamps);
-  if ((speedCurrent == 0) && (millis() < 30000))
+  if ((speedCurrent == 0) && (currentCalibOrder == 1))
   {
 
     currentFilterInit.in(curerntRead);
 
+    iCurrentCalibOrder++;
+    if (iCurrentCalibOrder > NB_CURRENT_CALIB)
+    {
+      iCurrentCalibOrder = 0;
+      currentCalibOrder = 0;
+    }
+
 #if DEBUG_DISPLAY_CURRENT
     Serial.print("Current calibration ... ");
 #endif
-
   }
 
 #if DEBUG_DISPLAY_CURRENT
@@ -1478,7 +1689,6 @@ void processCurrent()
   Serial.print(" / in amperes : ");
   Serial.println(currentInMillamps / 1000.0);
 #endif
-
 }
 
 //////------------------------------------
@@ -1521,6 +1731,12 @@ void loop()
   {
     processCurrent();
   }
+
+/*
+  // handle OTA
+  BLEDevice::deinit();
+  OTA_loop();
+*/
 
   // Give a time for ESP
   delay(1);
