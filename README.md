@@ -52,11 +52,11 @@ http://avdweb.nl/Article_files/Solarbike/Motor-controller/China-BLDC-motor-contr
 - [ ] Features    
     - [X] Save settings in non volatile memory
     - [X] Progressive electric braking (software detection)
+    - [X] Current measure auto calibration (at startup)
+    - [X] Current measure manual calibration
     - [ ] Speed limiter at startup
     - [ ] Progressive electric braking (hardware detection)
     - [ ] Customize modes with different power / max speed
-    - [ ] Current measure auto calibration (at startup)
-    - [X] Current measure manual calibration
     - [ ] Remote physical button to change mode (or other features)
     - [ ] Speed loop regulation
     - [ ] Current loop regulation
@@ -67,10 +67,9 @@ http://avdweb.nl/Article_files/Solarbike/Motor-controller/China-BLDC-motor-contr
     - [ ] Wifi connexion
     - [ ] Advanced diagnosis (serial errors, throtle errors ...)
 - [ ] Android app
-    - [X] display : speed, mode, voltage, current, power, brake mode (PA), max speed, max power, max current, temperature, humidity
+    - [X] display : speed, mode, voltage, current, power, brake mode (PA), max speed, max power, max current, temperature, humidity, time, moving time
     - [X] auto-launch app with NFC tag
     - [X] parameters custom settings
-    - [ ] display : time, moving time
     - [ ] history graphics
 
 - [ ] iPhone app => for someone else
