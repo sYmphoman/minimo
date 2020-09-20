@@ -62,6 +62,8 @@ http://avdweb.nl/Article_files/Solarbike/Motor-controller/China-BLDC-motor-contr
     - [ ] Custom acceleration curve
     - [ ] Disable electric brake with full battery
     - [ ] Data logging
+    - [ ] OTA update
+    - [ ] Wifi connexion
     - [ ] Advanced diagnosis (serial errors, throtle errors ...)
 - [ ] Android app
     - [X] display : speed, mode, voltage, current, power, brake mode (PA), max speed, max power, max current, temperature, humidity
