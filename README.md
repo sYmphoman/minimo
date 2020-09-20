@@ -52,10 +52,10 @@ http://avdweb.nl/Article_files/Solarbike/Motor-controller/China-BLDC-motor-contr
 - [ ] Features    
     - [X] Save settings in non volatile memory
     - [X] Progressive electric braking (software detection)
+    - [ ] Progressive electric braking (hardware detection)
     - [X] Current measure auto calibration (at startup)
     - [X] Current measure manual calibration
     - [ ] Speed limiter at startup
-    - [ ] Progressive electric braking (hardware detection)
     - [ ] Customize modes with different power / max speed
     - [ ] Remote physical button to change mode (or other features)
     - [ ] Speed loop regulation
