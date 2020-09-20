@@ -54,7 +54,9 @@ http://avdweb.nl/Article_files/Solarbike/Motor-controller/China-BLDC-motor-contr
     - [ ] Read break handle position on brake handle
 - [ ] Features    
     - [X] Save settings in non volatile memory
+    - [X] Disable electric brake with full battery
     - [X] Progressive electric braking (software detection)
+    - [X] OTA update
     - [ ] Progressive electric braking (hardware detection)
     - [X] Current measure auto calibration (at startup)
     - [X] Current measure manual calibration
@@ -64,10 +66,8 @@ http://avdweb.nl/Article_files/Solarbike/Motor-controller/China-BLDC-motor-contr
     - [ ] Speed loop regulation
     - [ ] Current loop regulation
     - [ ] Custom acceleration curve
-    - [ ] Disable electric brake with full battery
     - [ ] Data logging
-    - [ ] OTA update
-    - [ ] Wifi connexion
+    - [ ] Wifi connexion for dashboard display and settings
     - [ ] Advanced diagnosis (serial errors, throtle errors ...)
 - [ ] Android app
     - [X] display : speed, mode, voltage, current, power, brake mode (PA), max speed, max power, max current, temperature, humidity, time, moving time
