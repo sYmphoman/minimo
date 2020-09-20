@@ -41,7 +41,8 @@ http://avdweb.nl/Article_files/Solarbike/Motor-controller/China-BLDC-motor-contr
     - [X] Communication with Android
     - [X] Anti-theth with smartphone
     - [X] Anti-theth with beacon (scan & rssi detection)
-    - [ ] SmartLCD controller devices parameters and security
+    - [ ] SmartLCD connexion security
+    - [ ] Beacon settings
 - [ ] Other inputs/outputs
     - [X] Read current with WCS1700
     - [X] Read battery voltage
