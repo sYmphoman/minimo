@@ -6,10 +6,11 @@
 #include <BLEServer.h>
 #include <BLEUtils.h>
 #include <BLE2902.h>
+#include <EEPROM.h>
 
+#include "main.h"
 #include "MedianFilter.h"
-
-#include <dht_nonblocking.h>
+#include "dht_nonblocking.h"
 
 //////------------------------------------
 ////// Defines
@@ -23,6 +24,7 @@
 #define DEBUG_DISPLAY_BRAKE 0
 #define DEBUG_DISPLAY_BUTTON1 0
 #define DEBUG_DISPLAY_BUTTON2 0
+#define DEBUG_DISPLAY_CURRENT 0
 #define DEBUG_DISPLAY_DHT 0
 #define DEBUG_SERIAL_CHECKSUM_LCD_TO_CNTRL 0
 #define DEBUG_SERIAL_CHECKSUM_CNTRL_TO_LCD 0
@@ -48,6 +50,10 @@
 #define ANALOG_TO_CURRENT 35
 #define ANALOG_TO_CURRENT_MOYENNE_ZERO 1911
 
+#define EEPROM_SIZE 1024
+
+#define BLE_MTU 64
+
 // See the following for generating UUIDs: https://www.uuidgenerator.net/
 #define SERVICE_UUID "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
 #define SPEED_CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a0"
@@ -59,9 +65,49 @@
 #define BTLOCK_STATUS_CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a6"
 #define TEMPERATURE_STATUS_CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a7"
 #define HUMIDITY_STATUS_CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
+#define SETTINGS_CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a9"
+#define SPEED_LIMITER_CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26aa"
 
 //////------------------------------------
 ////// Variables
+
+// settings
+
+#pragma pack(push, 1)
+struct field_s
+{
+  /*
+  uint8_t Button_1_short_press_action = 0;
+  uint8_t Button_1_long_press_action = 0;
+  uint8_t Button_2_short_press_action = 0;
+  uint8_t Button_2_long_press_action = 0;
+  uint16_t Button_long_press_duration = 500;
+  uint8_t Bluetooth_lock_mode = 0;
+  uint8_t Bluetooth_pin_code = 0;
+  char Beacon_Mac_Address[20];
+ */
+  uint8_t Beacon_range;
+  uint8_t Mode_Z_Power_limitation;
+  uint8_t Mode_Z_Eco_mode;
+  uint8_t Mode_Z_Acceleration;
+  uint8_t Electric_brake_progressive_mode;
+  uint8_t Electric_brake_min_value;
+  uint8_t Electric_brake_max_value;
+  uint16_t Electric_brake_time_between_mode_shift;
+  uint8_t Electric_brake_disabled_condition;
+  uint8_t Electric_brake_disabled_voltage_limit;
+  uint8_t Current_loop_mode;
+  uint8_t Current_loop_max_current;
+  uint8_t Speed_loop_mode;
+  uint8_t Speed_limiter_at_startup;
+} __attribute__((packed));
+#pragma pack(pop)
+
+union settings_bt
+{
+  struct field_s fields;
+  unsigned char buffer[sizeof(struct field_s)];
+} settings;
 
 // Time
 uint32_t timeLastNotifyBle = 0;
@@ -84,6 +130,9 @@ int i_loop = 0;
 
 bool bleLock = false;
 bool blePicclyVisible = true;
+int8_t bleMinPowerLock = -80;
+
+uint8_t speedLimiter = 1;
 
 float currentHumidity = 0.0;
 float currentTemperature = 0.0;
@@ -100,14 +149,15 @@ uint8_t speedCurrent = 0;
 uint8_t speedOld = 0;
 uint8_t fakeSpeed = 25;
 
-uint8_t modeOrder = 2;
+uint8_t powerReduction = 0;
+
+uint8_t modeOrder = 3;
+uint8_t lcdMode = 0;
+uint8_t oldLcdMode = 0;
 
 uint8_t brakeStatus = 0;
 uint8_t brakeStatusOld = 0;
-uint8_t breakeMin = 0;
-uint8_t breakeMax = 4;
-uint8_t breakeSentOrder = breakeMin;
-uint32_t breakeTimeBetweenShifts = 500;
+uint8_t breakeSentOrder = -1;
 
 uint8_t button1Status = 0;
 uint8_t button2Status = 0;
@@ -116,6 +166,7 @@ uint16_t voltageStatus = 0;
 uint32_t voltageInMilliVolts = 0;
 MedianFilter voltageFilter(100, 0);
 MedianFilter currentFilter(100, 0);
+MedianFilter currentFilterInit(100, 0);
 
 BLEServer *pServer = NULL;
 BLECharacteristic *pCharacteristicSpeed = NULL;
@@ -127,6 +178,8 @@ BLECharacteristic *pCharacteristicPowerStatus = NULL;
 BLECharacteristic *pCharacteristicBtlockStatus = NULL;
 BLECharacteristic *pCharacteristicTemperatureStatus = NULL;
 BLECharacteristic *pCharacteristicHumidityStatus = NULL;
+BLECharacteristic *pCharacteristicSettings = NULL;
+BLECharacteristic *pCharacteristicSpeedLimiter = NULL;
 
 bool deviceConnected = false;
 bool oldDeviceConnected = false;
@@ -184,6 +237,10 @@ class BLEServerCallback : public BLEServerCallbacks
       Serial.println(" ==> device connected but PICLLY invisible ==> UNLOCK decision");
       Serial.println("-------------------------------------");
     }
+
+    // notify of current modes / values (for value not uptate by LCD)
+    pCharacteristicSpeedLimiter->setValue((uint8_t *)&speedLimiter, 1);
+    pCharacteristicSpeedLimiter->notify();
   };
 
   void onDisconnect(BLEServer *pServer)
@@ -246,10 +303,49 @@ class BLECharacteristicCallback : public BLECharacteristicCallbacks
       sprintf(print_buffer, "%02x", modeOrder);
       Serial.print("Write mode : ");
       Serial.println(print_buffer);
+    }
+    else if (pCharacteristic->getUUID().toString() == SETTINGS_CHARACTERISTIC_UUID)
+    {
+      std::string rxValue = pCharacteristic->getValue();
 
-      //      Serial.print("Notify mode : ");
-      //      pCharacteristic->setValue((uint8_t *)&orderMode, 1);
-      //      pCharacteristic->notify();
+      for (int i = 0; i < rxValue.length(); i++)
+      {
+        settings.buffer[i] = rxValue[i];
+      }
+
+      //memcpy(&settings.buffer, &rxValue, sizeof(settings.buffer));
+
+      Serial.print("Settings len : ");
+      Serial.println(rxValue.length());
+      Serial.print("Settings size : ");
+      Serial.println(rxValue.size());
+
+      Serial.print("Settings : ");
+      for (int i = 0; i < rxValue.length(); i++)
+      {
+        char print_buffer[5];
+        sprintf(print_buffer, "%02x ", rxValue[i]);
+        Serial.print(print_buffer);
+      }
+      Serial.println("");
+
+      displaySettings();
+
+      saveSettings();
+    }
+    else if (pCharacteristic->getUUID().toString() == SPEED_LIMITER_CHARACTERISTIC_UUID)
+    {
+      std::string rxValue = pCharacteristic->getValue();
+      speedLimiter = rxValue[0];
+
+      char print_buffer[500];
+      sprintf(print_buffer, "%02x", speedLimiter);
+      Serial.print("Write speedLimiter : ");
+      Serial.println(print_buffer);
+
+      // notify of current value
+      pCharacteristicSpeedLimiter->setValue((uint8_t *)&speedLimiter, 1);
+      pCharacteristicSpeedLimiter->notify();
     }
   }
 
@@ -344,6 +440,15 @@ class BLECharacteristicCallback : public BLECharacteristicCallbacks
       Serial.print("Read currentHumidity : ");
       Serial.println(print_buffer);
     }
+    else if (pCharacteristic->getUUID().toString() == SPEED_LIMITER_CHARACTERISTIC_UUID)
+    {
+      pCharacteristicHumidityStatus->setValue((uint8_t *)&speedLimiter, 1);
+
+      char print_buffer[500];
+      sprintf(print_buffer, "%d", speedLimiter);
+      Serial.print("Read speedLimiter : ");
+      Serial.println(print_buffer);
+    }
   }
 };
 
@@ -374,7 +479,7 @@ void bleOnScanResults(BLEScanResults scanResults)
 
     if (addressStr == "ac:23:3f:56:ec:6c")
     {
-      if (rssi < -80)
+      if (rssi < bleMinPowerLock)
       {
 #if DEBUG_BLE_SCAN
         Serial.println(" ==> PICC-LY found ... but too far away ==> lock from scan");
@@ -431,14 +536,21 @@ void setupBLE()
 {
 
   // Create the BLE Device
-  BLEDevice::init("SmartLCD2");
+  Serial.println("init");
+  BLEDevice::init("SmartLCD");
+  Serial.println("mtu set 2");
+  BLEDevice::setMTU(BLE_MTU);
+
+  int mtu = BLEDevice::getMTU();
+  Serial.print("MTU : ");
+  Serial.println(mtu);
 
   // Create the BLE Server
   pServer = BLEDevice::createServer();
   pServer->setCallbacks(new BLEServerCallback());
 
   // Create the BLE Service
-  BLEService *pService = pServer->createService(BLEUUID(SERVICE_UUID), 30);
+  BLEService *pService = pServer->createService(BLEUUID(SERVICE_UUID), 40);
 
   // Create a BLE Characteristic
   pCharacteristicSpeed = pService->createCharacteristic(
@@ -487,6 +599,17 @@ void setupBLE()
       BLECharacteristic::PROPERTY_NOTIFY |
           BLECharacteristic::PROPERTY_READ);
 
+  pCharacteristicSettings = pService->createCharacteristic(
+      SETTINGS_CHARACTERISTIC_UUID,
+      BLECharacteristic::PROPERTY_WRITE |
+          BLECharacteristic::PROPERTY_READ);
+
+  pCharacteristicSpeedLimiter = pService->createCharacteristic(
+      SPEED_LIMITER_CHARACTERISTIC_UUID,
+      BLECharacteristic::PROPERTY_NOTIFY |
+          BLECharacteristic::PROPERTY_WRITE |
+          BLECharacteristic::PROPERTY_READ);
+
   pCharacteristicSpeed->addDescriptor(new BLE2902());
   pCharacteristicMode->addDescriptor(new BLE2902());
   pCharacteristicBrakeSentOrder->addDescriptor(new BLE2902());
@@ -496,6 +619,8 @@ void setupBLE()
   pCharacteristicBtlockStatus->addDescriptor(new BLE2902());
   pCharacteristicTemperatureStatus->addDescriptor(new BLE2902());
   pCharacteristicHumidityStatus->addDescriptor(new BLE2902());
+  pCharacteristicSettings->addDescriptor(new BLE2902());
+  pCharacteristicSpeedLimiter->addDescriptor(new BLE2902());
 
   pCharacteristicSpeed->setCallbacks(new BLECharacteristicCallback());
   pCharacteristicMode->setCallbacks(new BLECharacteristicCallback());
@@ -506,6 +631,8 @@ void setupBLE()
   pCharacteristicBtlockStatus->setCallbacks(new BLECharacteristicCallback());
   pCharacteristicTemperatureStatus->setCallbacks(new BLECharacteristicCallback());
   pCharacteristicHumidityStatus->setCallbacks(new BLECharacteristicCallback());
+  pCharacteristicSettings->setCallbacks(new BLECharacteristicCallback());
+  pCharacteristicSpeedLimiter->setCallbacks(new BLECharacteristicCallback());
 
   // Start the service
   pService->start();
@@ -535,6 +662,16 @@ void setupSerial()
   hwSerCntrlToLcd.begin(BAUD_RATE, SERIAL_8N1, PIN_SERIAL_CNTRL_TO_ESP, PIN_SERIAL_ESP_TO_LCD);
 }
 
+void setupEPROMM()
+{
+  EEPROM.begin(EEPROM_SIZE);
+}
+
+void initDataWithSettings()
+{
+  speedLimiter = (settings.fields.Speed_limiter_at_startup == 1);
+}
+
 ////// Setup
 void setup()
 {
@@ -557,6 +694,16 @@ void setup()
   setupPins();
   delay(10);
 
+  Serial.println(PSTR("   eeprom ..."));
+  setupEPROMM();
+
+  Serial.println(PSTR("   settings ..."));
+  restoreSettings();
+  displaySettings();
+
+  Serial.println(PSTR("   init data with settings ..."));
+  initDataWithSettings();
+
   // End off setup
   Serial.println("setup --- end");
 }
@@ -564,6 +711,24 @@ void setup()
 //////------------------------------------
 //////------------------------------------
 ////// Various functions
+
+void saveSettings()
+{
+  Serial.print("saveSettings");
+  Serial.println(sizeof(settings));
+
+  EEPROM.writeBytes(0, settings.buffer, sizeof(settings));
+  EEPROM.commit();
+}
+
+void restoreSettings()
+{
+
+  Serial.print("restoreSettings");
+  Serial.println(sizeof(settings));
+
+  EEPROM.readBytes(0, settings.buffer, sizeof(settings));
+}
 
 uint8_t getCheckSum(char *string)
 {
@@ -575,6 +740,38 @@ uint8_t getCheckSum(char *string)
   }
 
   return rtn;
+}
+
+void displaySettings()
+{
+  Serial.print("// Beacon_range : ");
+  Serial.println(settings.fields.Beacon_range);
+  Serial.print("// Mode_Z_Power_limitation : ");
+  Serial.println(settings.fields.Mode_Z_Power_limitation);
+  Serial.print("// Mode_Z_Eco_mode : ");
+  Serial.println(settings.fields.Mode_Z_Eco_mode);
+  Serial.print("// Mode_Z_Acceleration : ");
+  Serial.println(settings.fields.Mode_Z_Acceleration);
+  Serial.print("// Electric_brake_progressive_mode : ");
+  Serial.println(settings.fields.Electric_brake_progressive_mode);
+  Serial.print("// Electric_brake_min_value : ");
+  Serial.println(settings.fields.Electric_brake_min_value);
+  Serial.print("// Electric_brake_max_value : ");
+  Serial.println(settings.fields.Electric_brake_max_value);
+  Serial.print("// Electric_brake_time_between_mode_shift : ");
+  Serial.println(settings.fields.Electric_brake_time_between_mode_shift);
+  Serial.print("// Electric_brake_disabled_condition : ");
+  Serial.println(settings.fields.Electric_brake_disabled_condition);
+  Serial.print("// Electric_brake_disabled_voltage_limit : ");
+  Serial.println(settings.fields.Electric_brake_disabled_voltage_limit);
+  Serial.print("// Current_loop_mode : ");
+  Serial.println(settings.fields.Current_loop_mode);
+  Serial.print("// Current_loop_max_current : ");
+  Serial.println(settings.fields.Current_loop_max_current);
+  Serial.print("// Speed_loop_mode : ");
+  Serial.println(settings.fields.Speed_loop_mode);
+  Serial.print("// Speed_limiter_at_startup : ");
+  Serial.println(settings.fields.Speed_limiter_at_startup);
 }
 
 void displayFrame(int mode, char data_buffer[], byte checksum)
@@ -691,14 +888,35 @@ uint8_t modifyModeOld(char var, char data_buffer[])
   return newLcdMode3;
 }
 
+uint8_t getMode(char var, char data_buffer[])
+{
+  uint32_t byteDiff = (var - data_buffer[2]);
+  uint8_t lcdMode = (byteDiff & 0x03) + 1;
+
+  char print_buffer[500];
+  sprintf(print_buffer, "%s %02x / %s %02x",
+          "lcd",
+          lcdMode,
+          "order",
+          modeOrder);
+
+  Serial.print("LCD mode : ");
+  Serial.print(print_buffer);
+  Serial.println("");
+
+  return lcdMode;
+}
+
 uint8_t modifyMode(char var, char data_buffer[])
 {
   uint8_t newLcdMode3;
 
-  if (modeOrder == 0)
+  if (modeOrder == 1)
     newLcdMode3 = lcdMode0[(uint8_t)(data_buffer[2])];
-  else if (modeOrder == 1)
+  else if (modeOrder == 2)
     newLcdMode3 = lcdMode1[(uint8_t)(data_buffer[2])];
+  else if (modeOrder == 3)
+    newLcdMode3 = lcdMode2[(uint8_t)(data_buffer[2])];
   else
     newLcdMode3 = lcdMode2[(uint8_t)(data_buffer[2])];
 
@@ -711,9 +929,26 @@ uint8_t modifyPower(char var, char data_buffer[])
 
   // lock escooter by reducing power to 5%
   if (bleLock == true)
-    newPower = 10;
+  {
+    newPower = 5;
+  }
+  else if (speedLimiter == 1)
+  {
+    newPower = 37;
+
+    /*
+    Serial.print("Speed : ");
+    Serial.print(speedCurrent);
+    Serial.print(" / Power reduction : ");
+    Serial.print(powerReduction);
+    Serial.print(" / newPower : ");
+    Serial.println(newPower);
+    */
+  }
   else
+  {
     newPower = var;
+  }
 
   return newPower;
 }
@@ -744,7 +979,7 @@ uint8_t getBrakeFromLCD(char var, char data_buffer[])
     brakeStatus = brakeStatusNew;
 
     // reset to min
-    breakeSentOrder = breakeMin;
+    breakeSentOrder = settings.fields.Electric_brake_min_value;
 
 #if DEBUG_DISPLAY_BRAKE
     Serial.print("Brake released at : ");
@@ -782,39 +1017,48 @@ uint8_t modifyBrake(char var, char data_buffer[])
 
   uint32_t currentTime = millis();
 
-  if (brakeStatus == 1)
+  if (settings.fields.Electric_brake_progressive_mode == 1)
   {
-    if (breakeSentOrder < breakeMax)
+    if (brakeStatus == 1)
     {
-      if (currentTime - timeLastBrake > breakeTimeBetweenShifts * 5)
+      if (breakeSentOrder < settings.fields.Electric_brake_max_value)
       {
-        breakeSentOrder = breakeMin + 5;
+        if (currentTime - timeLastBrake > settings.fields.Electric_brake_time_between_mode_shift * 5)
+        {
+          breakeSentOrder = settings.fields.Electric_brake_min_value + 5;
+        }
+        else if (currentTime - timeLastBrake > settings.fields.Electric_brake_time_between_mode_shift * 4)
+        {
+          breakeSentOrder = settings.fields.Electric_brake_min_value + 4;
+        }
+        else if (currentTime - timeLastBrake > settings.fields.Electric_brake_time_between_mode_shift * 3)
+        {
+          breakeSentOrder = settings.fields.Electric_brake_min_value + 3;
+        }
+        else if (currentTime - timeLastBrake > settings.fields.Electric_brake_time_between_mode_shift * 2)
+        {
+          breakeSentOrder = settings.fields.Electric_brake_min_value + 2;
+        }
+        else if (currentTime - timeLastBrake > settings.fields.Electric_brake_time_between_mode_shift * 1)
+        {
+          breakeSentOrder = settings.fields.Electric_brake_min_value + 1;
+        }
       }
-      else if (currentTime - timeLastBrake > breakeTimeBetweenShifts * 4)
-      {
-        breakeSentOrder = breakeMin + 4;
-      }
-      else if (currentTime - timeLastBrake > breakeTimeBetweenShifts * 3)
-      {
-        breakeSentOrder = breakeMin + 3;
-      }
-      else if (currentTime - timeLastBrake > breakeTimeBetweenShifts * 2)
-      {
-        breakeSentOrder = breakeMin + 2;
-      }
-      else if (currentTime - timeLastBrake > breakeTimeBetweenShifts * 1)
-      {
-        breakeSentOrder = breakeMin + 1;
-      }
-    }
 
-    // notify bluetooth
-    pCharacteristicBrakeSentOrder->setValue((uint8_t *)&breakeSentOrder, 1);
-    pCharacteristicBrakeSentOrder->notify();
+      // notify bluetooth
+      pCharacteristicBrakeSentOrder->setValue((uint8_t *)&breakeSentOrder, 1);
+      pCharacteristicBrakeSentOrder->notify();
+    }
+    else
+    // progressive brake enabled but brake released
+    {
+      breakeSentOrder = settings.fields.Electric_brake_min_value;
+    }
   }
   else
+  // progressive brake disabled
   {
-    breakeSentOrder = breakeMin;
+    breakeSentOrder = var;
   }
 
 #if DEBUG_DISPLAY_BRAKE
@@ -855,32 +1099,32 @@ uint8_t modifySpeedHigh(char var, char data_buffer[], int fakeSpeed)
 {
 
   // modify speed
-  if (speedOld > fakeSpeed - 1)
-  {
-    // modify speed
-    return ((0x01 + data_buffer[3]) & 0xff);
-  }
-  else
-  {
-    return var;
-  }
+  // if (speedOld => fakeSpeed)
+  // {
+  //   // modify speed
+  //   return ((0x01 + data_buffer[3]) & 0xff);
+  // }
+  // else
+  // {
+  return var;
+  //}
 }
 
 uint8_t modifySpeedLow(char var, char data_buffer[], int fakeSpeed)
 {
 
   // modify speed
-  if (speedOld > fakeSpeed - 1)
-  {
-    return ((0xf0 + data_buffer[3]) & 0xff);
-  }
-  else
-  {
-    return var;
-  }
+  // if (speedOld => fakeSpeed)
+  // {
+  //   return ((0xf0 + data_buffer[3]) & 0xff);
+  // }
+  // else
+  // {
+  return var;
+  //}
 }
 
-int readHardSerial(int i, HardwareSerial *ss, int mode, char data_buffer[])
+int readHardSerial(int i, HardwareSerial *ss, int serialMode, char data_buffer[])
 {
 
   byte var;
@@ -891,7 +1135,7 @@ int readHardSerial(int i, HardwareSerial *ss, int mode, char data_buffer[])
     var = ss->read();
 
     // LCD -> CNTRL
-    if (mode == MODE_LCD_TO_CNTRL)
+    if (serialMode == MODE_LCD_TO_CNTRL)
     {
       if ((var == 0xAA) && (begin_LcdToCntrl == 1))
       {
@@ -913,20 +1157,33 @@ int readHardSerial(int i, HardwareSerial *ss, int mode, char data_buffer[])
 
     //---------------------
     // MODIFY LCD_TO_CNTRL
-    if ((i == 5) && (mode == MODE_LCD_TO_CNTRL))
+    if ((i == 5) && (serialMode == MODE_LCD_TO_CNTRL))
     {
       //var = modifyMode(var, data_buffer);
+      lcdMode = getMode(var, data_buffer);
+
+      // override Smartphone mode with LCD mode
+      if (oldLcdMode != lcdMode)
+      {
+        modeOrder = lcdMode;
+        oldLcdMode = lcdMode;
+
+        // notify bluetooth
+        pCharacteristicMode->setValue((uint8_t *)&modeOrder, 1);
+        pCharacteristicMode->notify();
+      }
+
       var = modifyMode(var, data_buffer);
       isModified_LcdToCntrl = 1;
     }
 
-    if ((i == 7) && (mode == MODE_LCD_TO_CNTRL))
+    if ((i == 7) && (serialMode == MODE_LCD_TO_CNTRL))
     {
       var = modifyPower(var, data_buffer);
       isModified_LcdToCntrl = 1;
     }
 
-    if ((i == 10) && (mode == MODE_LCD_TO_CNTRL))
+    if ((i == 10) && (serialMode == MODE_LCD_TO_CNTRL))
     {
       var = modifyBrake(var, data_buffer);
       isModified_LcdToCntrl = 1;
@@ -935,13 +1192,13 @@ int readHardSerial(int i, HardwareSerial *ss, int mode, char data_buffer[])
     //---------------------
     // MODIFY CNTRL_TO_LCD
 
-    if ((i == 4) && (mode == MODE_CNTRL_TO_LCD))
+    if ((i == 4) && (serialMode == MODE_CNTRL_TO_LCD))
     {
       getBrakeFromLCD(var, data_buffer);
     }
 
     // modify speed
-    if ((i == 7) && (mode == MODE_CNTRL_TO_LCD))
+    if ((i == 7) && (serialMode == MODE_CNTRL_TO_LCD))
     {
       data_speed_buffer[0] = data_buffer[3];
       data_speed_buffer[1] = data_buffer[5];
@@ -949,7 +1206,7 @@ int readHardSerial(int i, HardwareSerial *ss, int mode, char data_buffer[])
       var = modifySpeedHigh(var, data_buffer, fakeSpeed);
       isModified_CntrlToLcd = 1;
     }
-    if ((i == 8) && (mode == MODE_CNTRL_TO_LCD))
+    if ((i == 8) && (serialMode == MODE_CNTRL_TO_LCD))
     {
       data_speed_buffer[3] = var;
       var = modifySpeedLow(var, data_buffer, fakeSpeed);
@@ -960,7 +1217,7 @@ int readHardSerial(int i, HardwareSerial *ss, int mode, char data_buffer[])
     }
 
     // CHECKSUM
-    if ((isModified_LcdToCntrl == 1) && (i == 14) && (mode == MODE_LCD_TO_CNTRL))
+    if ((isModified_LcdToCntrl == 1) && (i == 14) && (serialMode == MODE_LCD_TO_CNTRL))
     {
       uint8_t oldChecksum = var;
       var = getCheckSum(data_buffer);
@@ -977,7 +1234,7 @@ int readHardSerial(int i, HardwareSerial *ss, int mode, char data_buffer[])
 
       isModified_LcdToCntrl = 0;
     }
-    else if (((isModified_CntrlToLcd) == 1) && (i == 14) && (mode == MODE_CNTRL_TO_LCD))
+    else if (((isModified_CntrlToLcd) == 1) && (i == 14) && (serialMode == MODE_CNTRL_TO_LCD))
     {
 
       uint8_t oldChecksum = var;
@@ -1006,7 +1263,7 @@ int readHardSerial(int i, HardwareSerial *ss, int mode, char data_buffer[])
 
       uint8_t checksum = getCheckSum(data_buffer);
 
-      if (mode == MODE_CNTRL_TO_LCD)
+      if (serialMode == MODE_CNTRL_TO_LCD)
       {
 #if DEBUG_DISPLAY_FRAME_CNTRL_TO_LCD
         displayFrame(mode, data_buffer, checksum);
@@ -1029,7 +1286,7 @@ int readHardSerial(int i, HardwareSerial *ss, int mode, char data_buffer[])
       {
         Serial.println("====> CHECKSUM error ==> reset");
 
-        if (mode == MODE_LCD_TO_CNTRL)
+        if (serialMode == MODE_LCD_TO_CNTRL)
           begin_LcdToCntrl = 1;
         else
           begin_CntrlToLcd = 1;
@@ -1198,16 +1455,32 @@ void processVoltage()
 void processCurrent()
 {
   int curerntRead = analogRead(PIN_IN_CURRENT);
-  int currentInMillamps = (curerntRead - ANALOG_TO_CURRENT_MOYENNE_ZERO) * 1000 / ANALOG_TO_CURRENT;
-  currentFilter.in(currentInMillamps);
+  int currentInMillamps = (curerntRead - currentFilterInit.getMean()) * 1000 / ANALOG_TO_CURRENT;
 
-  /*
+// current rest value
+  currentFilter.in(currentInMillamps);
+  if ((speedCurrent == 0) && (millis() < 30000))
+  {
+
+    currentFilterInit.in(curerntRead);
+
+#if DEBUG_DISPLAY_CURRENT
+    Serial.print("Current calibration ... ");
+#endif
+
+  }
+
+#if DEBUG_DISPLAY_CURRENT
   Serial.print("Current read : ");
   Serial.print(curerntRead);
+  Serial.print(" / currentFilterInit mean : ");
+  Serial.print(currentFilterInit.getMean());
   Serial.print(" / in amperes : ");
   Serial.println(currentInMillamps / 1000.0);
-  */
+#endif
+
 }
+
 //////------------------------------------
 //////------------------------------------
 ////// Main loop
