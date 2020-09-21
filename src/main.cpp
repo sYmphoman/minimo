@@ -1,5 +1,6 @@
 // TODO : checksum validation on first full frame
 // TODO : BT lock
+// TODO : BT lock forced storage
 
 //////------------------------------------
 ////// Inludes
@@ -19,7 +20,7 @@
 //////------------------------------------
 ////// Defines
 
-#define DEBUG_BLE_SCAN 0
+#define DEBUG_BLE_SCAN 1
 #define DEBUG_BLE_NOTIFY 0
 #define DEBUG_DISPLAY_FRAME_LCD_TO_CNTRL 0
 #define DEBUG_DISPLAY_FRAME_CNTRL_TO_LCD 0
@@ -92,11 +93,11 @@ struct field_s
   uint8_t Button_2_short_press_action = 0;
   uint8_t Button_2_long_press_action = 0;
   uint16_t Button_long_press_duration = 500;
-  uint8_t Bluetooth_lock_mode = 0;
+   = 0;
   uint8_t Bluetooth_pin_code = 0;
   char Beacon_Mac_Address[20];
  */
-  uint8_t Beacon_range;
+  int8_t Beacon_range;
   uint8_t Mode_Z_Power_limitation;
   uint8_t Mode_Z_Eco_mode;
   uint8_t Mode_Z_Acceleration;
@@ -112,6 +113,7 @@ struct field_s
   uint8_t Speed_limiter_at_startup;
   uint8_t Wheel_size;
   uint8_t Motor_pole_number;
+  uint8_t Bluetooth_lock_mode;
 
 } __attribute__((packed));
 #pragma pack(pop)
@@ -141,9 +143,10 @@ DHT_nonblocking dht_sensor(PIN_IN_DH12, DHT_TYPE_11);
 
 int i_loop = 0;
 
-bool bleLock = false;
-bool blePicclyVisible = true;
-int8_t bleMinPowerLock = -80;
+int8_t bleLockStatus = 0;
+int8_t blePicclyVisible = 0;
+int8_t blePicclyRSSI = 0;
+int8_t bleLockForced = 0;
 
 uint8_t speedLimiter = 1;
 
@@ -252,17 +255,20 @@ class BLEServerCallback : public BLEServerCallbacks
     Serial.println("BLE connected");
     deviceConnected = true;
 
-    if (blePicclyVisible)
+    if (bleLockForced == 0)
     {
-      bleLock = false;
-      Serial.println(" ==> device connected ==> UNLOCK decision");
-      Serial.println("-------------------------------------");
-    }
-    else
-    {
-      bleLock = false;
-      Serial.println(" ==> device connected but PICLLY invisible ==> UNLOCK decision");
-      Serial.println("-------------------------------------");
+      if (settings.fields.Bluetooth_lock_mode == 1)
+      {
+        bleLockStatus = false;
+        Serial.println(" ==> device connected ==> UNLOCK decision");
+        Serial.println("-------------------------------------");
+      }
+      if (settings.fields.Bluetooth_lock_mode == 2)
+      {
+        bleLockStatus = false;
+        Serial.println(" ==> device connected ==> UNLOCK decision");
+        Serial.println("-------------------------------------");
+      }
     }
 
     // notify of current modes / values (for value not uptate by LCD)
@@ -275,19 +281,23 @@ class BLEServerCallback : public BLEServerCallbacks
     Serial.println("BLE disonnected");
     deviceConnected = false;
 
-    if (blePicclyVisible)
+    if (bleLockForced == 0)
     {
-      bleLock = false;
-
-      Serial.println(" ==> device disconnected but PICLLY visible ==> UNLOCK decision");
-      Serial.println("-------------------------------------");
-    }
-    else
-    {
-      bleLock = true;
-
-      Serial.println(" ==> device disconnected but PICLLY invisible ==> LOCK decision");
-      Serial.println("-------------------------------------");
+      if (settings.fields.Bluetooth_lock_mode == 1)
+      {
+        bleLockStatus = true;
+        Serial.println(" ==> device disconnected ==> LOCK decision");
+        Serial.println("-------------------------------------");
+      }
+      if (settings.fields.Bluetooth_lock_mode == 2)
+      {
+        if (!blePicclyVisible)
+        {
+          bleLockStatus = true;
+          Serial.println(" ==> device disconnected / PICLLY not visible ==> LOCK decision");
+          Serial.println("-------------------------------------");
+        }
+      }
     }
   }
 };
@@ -412,6 +422,20 @@ class BLECharacteristicCallback : public BLECharacteristicCallbacks
       Serial.print("Write currentCalibOrder : ");
       Serial.println(print_buffer);
     }
+    else if (pCharacteristic->getUUID().toString() == BTLOCK_STATUS_CHARACTERISTIC_UUID)
+    {
+      std::string rxValue = pCharacteristic->getValue();
+      bleLockForced = rxValue[3];
+
+      char print_buffer[500];
+      sprintf(print_buffer, "%02x", bleLockForced);
+      Serial.print("Write bleLockForced : ");
+      Serial.println(print_buffer);
+
+      bleLockStatus = bleLockForced;
+
+      notifyBleLock();
+    }
   }
 
   void onRead(BLECharacteristic *pCharacteristic)
@@ -478,10 +502,11 @@ class BLECharacteristicCallback : public BLECharacteristicCallbacks
     }
     else if (pCharacteristic->getUUID().toString() == BTLOCK_STATUS_CHARACTERISTIC_UUID)
     {
-      pCharacteristicBtlockStatus->setValue((uint8_t *)&bleLock, 1);
+
+      notifyBleLock();
 
       char print_buffer[500];
-      sprintf(print_buffer, "%02x", bleLock);
+      sprintf(print_buffer, "%02x", bleLockStatus);
       Serial.print("Read bleLock : ");
       Serial.println(print_buffer);
     }
@@ -545,7 +570,7 @@ void bleOnScanResults(BLEScanResults scanResults)
   for (int i = 0; i < scanResults.getCount(); i++)
   {
     String name = scanResults.getDevice(i).getName().c_str();
-    int rssi = scanResults.getDevice(i).getRSSI();
+    blePicclyRSSI = scanResults.getDevice(i).getRSSI();
     std::string address = scanResults.getDevice(i).getAddress().toString();
     String addressStr = address.c_str();
 
@@ -557,22 +582,30 @@ void bleOnScanResults(BLEScanResults scanResults)
     Serial.print(" / name : ");
     Serial.print(name);
     Serial.print(" / rssi ");
-    Serial.println(rssi);
+    Serial.println(blePicclyRSSI);
 #endif
 
     if (addressStr == "ac:23:3f:56:ec:6c")
     {
-      if (rssi < bleMinPowerLock)
+      if (blePicclyRSSI < settings.fields.Beacon_range)
       {
 #if DEBUG_BLE_SCAN
-        Serial.println(" ==> PICC-LY found ... but too far away ==> lock from scan");
-        newBlePicclyVisible = false;
+        Serial.print(" ==> PICC-LY found ... but too far away / RSSI = ");
+        Serial.print(blePicclyRSSI);
+        Serial.print(" / min RSSI required = ");
+        Serial.print(settings.fields.Beacon_range);
+        Serial.println(" ==> lock from scan");
 #endif
+        newBlePicclyVisible = false;
       }
       else
       {
 #if DEBUG_BLE_SCAN
-        Serial.println(" ==> PICC-LY found ==> unlock from scan");
+        Serial.print(" ==> PICC-LY found  / RSSI = ");
+        Serial.print(blePicclyRSSI);
+        Serial.print(" / min RSSI required = ");
+        Serial.print(settings.fields.Beacon_range);
+        Serial.println(" ==> unlock from scan");
 #endif
         newBlePicclyVisible = true;
       }
@@ -582,25 +615,92 @@ void bleOnScanResults(BLEScanResults scanResults)
   // store piclyy status
   blePicclyVisible = newBlePicclyVisible;
 
-  // launch new scan
-  pBLEScan->start(20, &bleOnScanResults, false);
-
-  // set BT lock
-  if ((!deviceConnected))
+  if (bleLockForced == 0)
   {
-    if (!blePicclyVisible)
+    if (settings.fields.Bluetooth_lock_mode == 2)
     {
-      bleLock = true;
-      Serial.println(" ==> no device connected and PICC-LY no found ==> LOCK decision");
+      if ((!blePicclyVisible) && (!deviceConnected))
+      {
+        bleLockStatus = 1;
+
+        Serial.println(" ==> PICLLY not visible // smartphone not connected ==> LOCK decision");
+        Serial.println("-------------------------------------");
+      }
+      else if ((!blePicclyVisible) && (deviceConnected))
+      {
+        bleLockStatus = 0;
+
+        Serial.println(" ==> PICLLY visible // smartphone connected ==> UNLOCK decision");
+        Serial.println("-------------------------------------");
+      }
+      else
+      {
+      }
     }
-    else
+    if (settings.fields.Bluetooth_lock_mode == 3)
     {
-      bleLock = false;
-      Serial.println(" ==> no device connected and PICC-LY found ==> UNLOCK decision");
+      if (!blePicclyVisible)
+      {
+        bleLockStatus = 1;
+
+        Serial.println(" ==> PICLLY not visible ==> LOCK decision");
+        Serial.println("-------------------------------------");
+      }
+      else if (blePicclyVisible)
+      {
+        bleLockStatus = 0;
+
+        Serial.println(" ==> PICLLY visible ==> UNLOCK decision");
+        Serial.println("-------------------------------------");
+      }
     }
   }
 
+  notifyBleLock();
+
+  // launch new scan
+  pBLEScan->start(5, &bleOnScanResults, false);
+
+  // set BT lock
+  /*
+    if ((!deviceConnected))
+    {
+      if (!blePicclyVisible)
+      {
+        bleLockStatus = true;
+        Serial.println(" ==> no device connected and PICC-LY no found ==> LOCK decision");
+      }
+      else
+      {
+        bleLockStatus = false;
+        Serial.println(" ==> no device connected and PICC-LY found ==> UNLOCK decision");
+      }
+    }
+    */
+
   Serial.println("-------------------------------------");
+}
+
+void notifyBleLock()
+{
+  byte value[4];
+  value[0] = bleLockStatus;
+  value[1] = blePicclyVisible;
+  value[2] = blePicclyRSSI;
+  value[3] = bleLockForced;
+  pCharacteristicBtlockStatus->setValue((uint8_t *)&value, 4);
+  pCharacteristicBtlockStatus->notify();
+
+  Serial.print("notifyBleLock : bleLockStatus = ");
+  Serial.print(bleLockStatus);
+  Serial.print(" / blePicclyVisible = ");
+  Serial.print(blePicclyVisible);
+  Serial.print(" / blePicclyRSSI = ");
+  Serial.print(blePicclyRSSI);
+
+  Serial.print(" / bleLockForced = ");
+  Serial.print(bleLockForced);
+  Serial.println("");
 }
 
 void setupPins()
@@ -670,6 +770,7 @@ void setupBLE()
   pCharacteristicBtlockStatus = pService->createCharacteristic(
       BTLOCK_STATUS_CHARACTERISTIC_UUID,
       BLECharacteristic::PROPERTY_NOTIFY |
+          BLECharacteristic::PROPERTY_WRITE |
           BLECharacteristic::PROPERTY_READ);
 
   pCharacteristicTemperatureStatus = pService->createCharacteristic(
@@ -756,7 +857,7 @@ void setupBLE()
   pBLEScan = BLEDevice::getScan();
   pBLEScan->setAdvertisedDeviceCallbacks(new BLEAdvertisedDeviceCallback());
   pBLEScan->setActiveScan(true);
-  pBLEScan->start(20, &bleOnScanResults, false);
+  pBLEScan->start(10, &bleOnScanResults, false);
 }
 
 void setupSerial()
@@ -816,7 +917,7 @@ void setup()
   Serial.println(PSTR("   init data with settings ..."));
   initDataWithSettings();
 
-/*
+  /*
   Serial.println(PSTR("   setup OTA ..."));
   setupOTA();
 */
@@ -894,6 +995,8 @@ void displaySettings()
   Serial.println(settings.fields.Wheel_size);
   Serial.print("// Motor_pole_number : ");
   Serial.println(settings.fields.Motor_pole_number);
+  Serial.print("// Bluetooth_lock_mode : ");
+  Serial.println(settings.fields.Bluetooth_lock_mode);
 }
 
 void displayFrame(int mode, char data_buffer[], byte checksum)
@@ -1068,7 +1171,7 @@ uint8_t modifyPower(char var, char data_buffer[])
   uint8_t newPower;
 
   // lock escooter by reducing power to 5%
-  if (bleLock == true)
+  if (bleLockStatus == true)
   {
     newPower = 5;
   }
@@ -1564,8 +1667,7 @@ void processBLE()
       Serial.println(power);
 #endif
 
-      pCharacteristicBtlockStatus->setValue((uint8_t *)&bleLock, 1);
-      pCharacteristicBtlockStatus->notify();
+      notifyBleLock();
 
 #if DEBUG_BLE_NOTIFY
       Serial.print("Notify bleLock : ");
@@ -1732,7 +1834,7 @@ void loop()
     processCurrent();
   }
 
-/*
+  /*
   // handle OTA
   BLEDevice::deinit();
   OTA_loop();
