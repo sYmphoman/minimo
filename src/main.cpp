@@ -1,5 +1,4 @@
 // TODO : checksum validation on first full frame
-// TODO : BT lock
 // TODO : BT lock forced storage
 
 //////------------------------------------
@@ -20,7 +19,7 @@
 //////------------------------------------
 ////// Defines
 
-#define DEBUG_BLE_SCAN 1
+#define DEBUG_BLE_SCAN 0
 #define DEBUG_BLE_NOTIFY 0
 #define DEBUG_DISPLAY_FRAME_LCD_TO_CNTRL 0
 #define DEBUG_DISPLAY_FRAME_CNTRL_TO_LCD 0
@@ -37,8 +36,8 @@
 #define DEBUG_SERIAL_CHECKSUM_CNTRL_TO_LCD 0
 
 #define PIN_SERIAL_LCD_TO_ESP 25
-#define PIN_SERIAL_ESP_TO_CNTRL 26
-#define PIN_SERIAL_CNTRL_TO_ESP 34
+#define PIN_SERIAL_ESP_TO_CNTRL 32
+#define PIN_SERIAL_CNTRL_TO_ESP 26
 #define PIN_SERIAL_ESP_TO_LCD 13
 #define PIN_IN_BRAKE 12
 #define PIN_IN_VOLTAGE 33
@@ -58,6 +57,8 @@
 #define NB_CURRENT_CALIB 3000
 
 #define EEPROM_SIZE 1024
+#define EEPROM_ADDRESS_SETTINGS 0
+#define EEPROM_ADDRESS_BLE_LOCK_FORCED 100
 
 #define BLE_MTU 64
 
@@ -435,6 +436,7 @@ class BLECharacteristicCallback : public BLECharacteristicCallbacks
       bleLockStatus = bleLockForced;
 
       notifyBleLock();
+      saveBleLockForced();
     }
   }
 
@@ -504,6 +506,14 @@ class BLECharacteristicCallback : public BLECharacteristicCallbacks
     {
 
       notifyBleLock();
+      /*
+        byte value[4];
+        value[0] = bleLockStatus;
+        value[1] = blePicclyVisible;
+        value[2] = blePicclyRSSI;
+        value[3] = bleLockForced;
+        pCharacteristicBtlockStatus->setValue((uint8_t *)&value, 4);
+        */
 
       char print_buffer[500];
       sprintf(print_buffer, "%02x", bleLockStatus);
@@ -711,7 +721,7 @@ void setupPins()
   pinMode(PIN_IN_VOLTAGE, INPUT);
   pinMode(PIN_IN_CURRENT, INPUT);
 
-  //pinMode(PIN_IN_DH12, INPUT_PULLUP);
+  //  pinMode(PIN_IN_DH12, INPUT_PULLUP);
   pinMode(14, OUTPUT);
 }
 
@@ -909,6 +919,11 @@ void setup()
 
   Serial.println(PSTR("   eeprom ..."));
   setupEPROMM();
+  restoreBleLockForced();
+
+  // force locking
+  if (bleLockForced == 1)
+    bleLockStatus = 1;
 
   Serial.println(PSTR("   settings ..."));
   restoreSettings();
@@ -928,7 +943,7 @@ void setup()
 
 //////------------------------------------
 //////------------------------------------
-////// Various functions
+////// EEPROM functions
 
 void saveSettings()
 {
@@ -936,8 +951,21 @@ void saveSettings()
   Serial.print(sizeof(settings));
   Serial.println(" bytes");
 
-  EEPROM.writeBytes(0, settings.buffer, sizeof(settings));
+  EEPROM.writeBytes(EEPROM_ADDRESS_SETTINGS, settings.buffer, sizeof(settings));
   EEPROM.commit();
+}
+
+void saveBleLockForced()
+{
+  Serial.print("save bleLockForced : ");
+  Serial.print(sizeof(bleLockForced));
+  Serial.println(" bytes");
+
+  EEPROM.writeBytes(EEPROM_ADDRESS_BLE_LOCK_FORCED, &bleLockForced, sizeof(bleLockForced));
+  EEPROM.commit();
+
+  Serial.print("save bleLockForced value : ");
+  Serial.println(bleLockForced);
 }
 
 void restoreSettings()
@@ -946,8 +974,24 @@ void restoreSettings()
   Serial.print("restoreSettings");
   Serial.println(sizeof(settings));
 
-  EEPROM.readBytes(0, settings.buffer, sizeof(settings));
+  EEPROM.readBytes(EEPROM_ADDRESS_SETTINGS, settings.buffer, sizeof(settings));
 }
+
+void restoreBleLockForced()
+{
+
+  Serial.print("restore BleLockForced");
+  Serial.println(sizeof(bleLockForced));
+
+  EEPROM.readBytes(EEPROM_ADDRESS_BLE_LOCK_FORCED, &bleLockForced, sizeof(bleLockForced));
+
+  Serial.print("restore bleLockForced value : ");
+  Serial.println(bleLockForced);
+}
+
+//////------------------------------------
+//////------------------------------------
+////// Various functions
 
 uint8_t getCheckSum(char *string)
 {
@@ -1173,6 +1217,7 @@ uint8_t modifyPower(char var, char data_buffer[])
   // lock escooter by reducing power to 5%
   if (bleLockStatus == true)
   {
+    // REMINDER : never put bellow 5
     newPower = 5;
   }
   else if (speedLimiter == 1)
@@ -1574,7 +1619,7 @@ int readHardSerial(int i, HardwareSerial *ss, int serialMode, char data_buffer[]
       if (serialMode == MODE_CNTRL_TO_LCD)
       {
 #if DEBUG_DISPLAY_FRAME_CNTRL_TO_LCD
-        displayFrame(mode, data_buffer, checksum);
+        displayFrame(serialMode, data_buffer, checksum);
 #endif
 #if DEBUG_DISPLAY_SPEED
         displaySpeed();
@@ -1583,7 +1628,7 @@ int readHardSerial(int i, HardwareSerial *ss, int serialMode, char data_buffer[]
       else
       {
 #if DEBUG_DISPLAY_FRAME_LCD_TO_CNTRL
-        displayFrame(mode, data_buffer, checksum);
+        displayFrame(serialMode, data_buffer, checksum);
 #endif
 #if DEBUG_DISPLAY_MODE
         displayMode(data_buffer);
