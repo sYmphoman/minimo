@@ -1,5 +1,6 @@
 // TODO : checksum validation on first full frame
-// TODO : BT lock forced storage
+// TODO : current loop
+// TODO : speed loop
 
 //////------------------------------------
 ////// Inludes
@@ -182,7 +183,10 @@ uint8_t ecoLcdOld = 0;
 
 uint8_t brakeStatus = 0;
 uint8_t brakeStatusOld = 0;
-uint8_t breakeSentOrder = -1;
+int8_t breakeSentOrder = -1;
+uint8_t brakeLcd = 0;
+int8_t brakeLcdOld = -1;
+int8_t breakeSentOrderOld = -1;
 
 uint8_t currentCalibOrder = 1;
 uint32_t iCurrentCalibOrder = 0;
@@ -341,6 +345,17 @@ class BLECharacteristicCallback : public BLECharacteristicCallbacks
       sprintf(print_buffer, "%02x", modeOrder);
       Serial.print("Write mode : ");
       Serial.println(print_buffer);
+    }
+    if (pCharacteristic->getUUID().toString() == BRAKE_STATUS_CHARACTERISTIC_UUID)
+    {
+      std::string rxValue = pCharacteristic->getValue();
+      breakeSentOrder = rxValue[0];
+
+      char print_buffer[500];
+      sprintf(print_buffer, "%02x", breakeSentOrder);
+      Serial.print("Write breakeSentOrder : ");
+      Serial.println(print_buffer);
+
     }
     else if (pCharacteristic->getUUID().toString() == SETTINGS_CHARACTERISTIC_UUID)
     {
@@ -701,6 +716,7 @@ void notifyBleLock()
   pCharacteristicBtlockStatus->setValue((uint8_t *)&value, 4);
   pCharacteristicBtlockStatus->notify();
 
+#if DEBUG_BLE_NOTIFY
   Serial.print("notifyBleLock : bleLockStatus = ");
   Serial.print(bleLockStatus);
   Serial.print(" / blePicclyVisible = ");
@@ -711,6 +727,7 @@ void notifyBleLock()
   Serial.print(" / bleLockForced = ");
   Serial.print(bleLockForced);
   Serial.println("");
+#endif
 }
 
 void setupPins()
@@ -760,6 +777,7 @@ void setupBLE()
   pCharacteristicBrakeSentOrder = pService->createCharacteristic(
       BRAKE_STATUS_CHARACTERISTIC_UUID,
       BLECharacteristic::PROPERTY_NOTIFY |
+          BLECharacteristic::PROPERTY_WRITE |
           BLECharacteristic::PROPERTY_READ);
 
   pCharacteristicVoltageStatus = pService->createCharacteristic(
@@ -1247,6 +1265,8 @@ uint8_t getBrakeFromLCD(char var, char data_buffer[])
   uint8_t brake = (var - data_buffer[3]) & 0x20;
   uint8_t brakeStatusNew = brake >> 5;
 
+  brakeLcd = var;
+
   //uint8_t brakeStatusNew = brakeStatus;
   if ((brakeStatusNew == 1) && (brakeStatusOld == 0))
   {
@@ -1305,6 +1325,11 @@ uint8_t modifyBrake(char var, char data_buffer[])
 
   uint32_t currentTime = millis();
 
+  // init from LCD brake mode
+  if (breakeSentOrder == -1)
+    breakeSentOrder = var;
+
+  // progressive mode
   if (settings.fields.Electric_brake_progressive_mode == 1)
   {
     if (brakeStatus == 1)
@@ -1346,8 +1371,18 @@ uint8_t modifyBrake(char var, char data_buffer[])
   else
   // progressive brake disabled
   {
-    breakeSentOrder = var;
+
+    // notify brake LCD value
+    if (breakeSentOrder != breakeSentOrderOld)
+    {
+      pCharacteristicBrakeSentOrder->setValue((uint8_t *)&breakeSentOrder, 1);
+      pCharacteristicBrakeSentOrder->notify();
+    }
+
+    
+    breakeSentOrderOld = brakeLcd;
   }
+
 
 #if DEBUG_DISPLAY_BRAKE
   char print_buffer[500];
@@ -1511,62 +1546,69 @@ int readHardSerial(int i, HardwareSerial *ss, int serialMode, char data_buffer[]
 
     //---------------------
     // MODIFY LCD_TO_CNTRL
-    if ((i == 5) && (serialMode == MODE_LCD_TO_CNTRL))
-    {
 
-      var = modifyMode(var, data_buffer);
-      isModified_LcdToCntrl = 1;
-    }
-
-    if ((i == 7) && (serialMode == MODE_LCD_TO_CNTRL))
+    if ((!begin_LcdToCntrl) && (serialMode == MODE_LCD_TO_CNTRL))
     {
-      var = modifyPower(var, data_buffer);
-      isModified_LcdToCntrl = 1;
-    }
+      if (i == 5)
+      {
 
-    if ((i == 10) && (serialMode == MODE_LCD_TO_CNTRL))
-    {
-      var = modifyBrake(var, data_buffer);
-      isModified_LcdToCntrl = 1;
-    }
+        var = modifyMode(var, data_buffer);
+        isModified_LcdToCntrl = 1;
+      }
 
-    if ((i == 11) && (serialMode == MODE_LCD_TO_CNTRL))
-    {
-      var = modifyEco(var, data_buffer);
-      isModified_LcdToCntrl = 1;
-    }
+      if (i == 7)
+      {
+        var = modifyPower(var, data_buffer);
+        isModified_LcdToCntrl = 1;
+      }
 
-    if ((i == 12) && (serialMode == MODE_LCD_TO_CNTRL))
-    {
-      var = modifyAccel(var, data_buffer);
-      isModified_LcdToCntrl = 1;
+      if (i == 10)
+      {
+        var = modifyBrake(var, data_buffer);
+        isModified_LcdToCntrl = 1;
+      }
+
+      if (i == 11)
+      {
+        var = modifyEco(var, data_buffer);
+        isModified_LcdToCntrl = 1;
+      }
+
+      if (i == 12)
+      {
+        var = modifyAccel(var, data_buffer);
+        isModified_LcdToCntrl = 1;
+      }
     }
 
     //---------------------
     // MODIFY CNTRL_TO_LCD
 
-    if ((i == 4) && (serialMode == MODE_CNTRL_TO_LCD))
+    if ((!begin_CntrlToLcd) && (serialMode == MODE_CNTRL_TO_LCD))
     {
-      getBrakeFromLCD(var, data_buffer);
-    }
+      if (i == 4)
+      {
+        getBrakeFromLCD(var, data_buffer);
+      }
 
-    // modify speed
-    if ((i == 7) && (serialMode == MODE_CNTRL_TO_LCD))
-    {
-      data_speed_buffer[0] = data_buffer[3];
-      data_speed_buffer[1] = data_buffer[5];
-      data_speed_buffer[2] = var;
-      var = modifySpeedHigh(var, data_buffer, fakeSpeed);
-      isModified_CntrlToLcd = 1;
-    }
-    if ((i == 8) && (serialMode == MODE_CNTRL_TO_LCD))
-    {
-      data_speed_buffer[3] = var;
-      var = modifySpeedLow(var, data_buffer, fakeSpeed);
-      isModified_CntrlToLcd = 1;
+      // modify speed
+      if (i == 7)
+      {
+        data_speed_buffer[0] = data_buffer[3];
+        data_speed_buffer[1] = data_buffer[5];
+        data_speed_buffer[2] = var;
+        var = modifySpeedHigh(var, data_buffer, fakeSpeed);
+        isModified_CntrlToLcd = 1;
+      }
+      if (i == 8)
+      {
+        data_speed_buffer[3] = var;
+        var = modifySpeedLow(var, data_buffer, fakeSpeed);
+        isModified_CntrlToLcd = 1;
 
-      speedOld = speedCurrent;
-      speedCurrent = getSpeed();
+        speedOld = speedCurrent;
+        speedCurrent = getSpeed();
+      }
     }
 
     // CHECKSUM
