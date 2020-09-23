@@ -39,6 +39,7 @@ http://avdweb.nl/Article_files/Solarbike/Motor-controller/China-BLDC-motor-contr
     - [X] Read/write serial link LCD_TO_CNTRL
     - [X] Read/write serial link CNTRL_TO_LCD
     - [X] Decode speed/mode/brake/regulator from serial link
+    - [X] Frame error detection
 - [ ] Serial Kaabo / Zero / Appolo
 - [ ] Bluetooth 
     - [X] Communication with Android
