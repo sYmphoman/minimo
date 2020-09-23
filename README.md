@@ -28,7 +28,7 @@ The software is designed for ESP32 Dev Kit v4.
 ### Schematics
 https://easyeda.com/Koxx3/bettercontroller
 
-### Android application
+### Android application
 https://github.com/Koxx3/minimo_android
 
 ## Inspiration to understand controler electronic
