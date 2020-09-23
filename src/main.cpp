@@ -1,6 +1,13 @@
-// TODO : checksum validation on first full frame
 // TODO : current loop
 // TODO : speed loop
+// TODO : speed adjustment
+// TODO : LCD error indicators
+// TODO : buttons management
+// TODO : BT pin code
+// TODO : beacon MAC
+// TODO : mode Z
+// TODO : brake disable with high voltage
+// TODO : switch to OTA
 
 //////------------------------------------
 ////// Inludes
@@ -79,6 +86,7 @@
 #define ECO_CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26ab"
 #define ACCEL_CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26ac"
 #define CURRENT_CALIB_CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26ad"
+#define SWITCH_TO_OTA_CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26ae"
 
 //////------------------------------------
 ////// Variables
@@ -144,6 +152,8 @@ HardwareSerial hwSerLcdToCntrl(2);
 DHT_nonblocking dht_sensor(PIN_IN_DH12, DHT_TYPE_11);
 
 int i_loop = 0;
+
+boolean inOtaMode = false;
 
 int8_t bleLockStatus = 0;
 int8_t blePicclyVisible = 0;
@@ -215,6 +225,7 @@ BLECharacteristic *pCharacteristicSpeedLimiter = NULL;
 BLECharacteristic *pCharacteristicEco = NULL;
 BLECharacteristic *pCharacteristicAccel = NULL;
 BLECharacteristic *pCharacteristicCurrentCalib = NULL;
+BLECharacteristic *pCharacteristicOtaSwitch = NULL;
 
 bool deviceConnected = false;
 bool oldDeviceConnected = false;
@@ -355,7 +366,6 @@ class BLECharacteristicCallback : public BLECharacteristicCallbacks
       sprintf(print_buffer, "%02x", breakeSentOrder);
       Serial.print("Write breakeSentOrder : ");
       Serial.println(print_buffer);
-
     }
     else if (pCharacteristic->getUUID().toString() == SETTINGS_CHARACTERISTIC_UUID)
     {
@@ -452,6 +462,25 @@ class BLECharacteristicCallback : public BLECharacteristicCallbacks
 
       notifyBleLock();
       saveBleLockForced();
+    }
+    else if (pCharacteristic->getUUID().toString() == SWITCH_TO_OTA_CHARACTERISTIC_UUID)
+    {
+      Serial.println("Write SWITCH_TO_OTA_CHARACTERISTIC_UUID");
+
+      // disconnect BT
+
+      Serial.println("BT deinit => done");
+
+      delay(1000);
+
+      // init OTA
+      OTA_setup();
+
+      Serial.println("OTA init => done");
+      delay(1000);
+
+      // Enable wifi & OTA
+      inOtaMode = true;
     }
   }
 
@@ -840,6 +869,10 @@ void setupBLE()
           BLECharacteristic::PROPERTY_WRITE |
           BLECharacteristic::PROPERTY_READ);
 
+  pCharacteristicOtaSwitch = pService->createCharacteristic(
+      SWITCH_TO_OTA_CHARACTERISTIC_UUID,
+      BLECharacteristic::PROPERTY_WRITE);
+
   pCharacteristicSpeed->addDescriptor(new BLE2902());
   pCharacteristicMode->addDescriptor(new BLE2902());
   pCharacteristicBrakeSentOrder->addDescriptor(new BLE2902());
@@ -854,6 +887,7 @@ void setupBLE()
   pCharacteristicEco->addDescriptor(new BLE2902());
   pCharacteristicAccel->addDescriptor(new BLE2902());
   pCharacteristicCurrentCalib->addDescriptor(new BLE2902());
+  pCharacteristicOtaSwitch->addDescriptor(new BLE2902());
 
   pCharacteristicSpeed->setCallbacks(new BLECharacteristicCallback());
   pCharacteristicMode->setCallbacks(new BLECharacteristicCallback());
@@ -869,6 +903,7 @@ void setupBLE()
   pCharacteristicEco->setCallbacks(new BLECharacteristicCallback());
   pCharacteristicAccel->setCallbacks(new BLECharacteristicCallback());
   pCharacteristicCurrentCalib->setCallbacks(new BLECharacteristicCallback());
+  pCharacteristicOtaSwitch->setCallbacks(new BLECharacteristicCallback());
 
   // Start the service
   pService->start();
@@ -901,11 +936,6 @@ void setupSerial()
 void setupEPROMM()
 {
   EEPROM.begin(EEPROM_SIZE);
-}
-
-void setupOTA()
-{
-  OTA_setup();
 }
 
 void initDataWithSettings()
@@ -949,11 +979,6 @@ void setup()
 
   Serial.println(PSTR("   init data with settings ..."));
   initDataWithSettings();
-
-  /*
-  Serial.println(PSTR("   setup OTA ..."));
-  setupOTA();
-*/
 
   // End off setup
   Serial.println("setup --- end");
@@ -1379,10 +1404,8 @@ uint8_t modifyBrake(char var, char data_buffer[])
       pCharacteristicBrakeSentOrder->notify();
     }
 
-    
     breakeSentOrderOld = brakeLcd;
   }
-
 
 #if DEBUG_DISPLAY_BRAKE
   char print_buffer[500];
@@ -1921,11 +1944,12 @@ void loop()
     processCurrent();
   }
 
-  /*
   // handle OTA
-  BLEDevice::deinit();
-  OTA_loop();
-*/
+  if (inOtaMode)
+  {
+    BLEDevice::deinit(true);
+    OTA_loop();
+  }
 
   // Give a time for ESP
   delay(1);

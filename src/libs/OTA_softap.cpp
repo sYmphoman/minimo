@@ -13,9 +13,9 @@
 #include "JQuery.h"
 
 const char* sw_version = "20202009";
-const char* host = "esp32";
+const char* host = "smartlcd";
 const char* ssid = "SmartLCD";
-const char* password = "testtest";
+const char* password = "SmartLCD$";
 
 
 static WebServer server(80);
@@ -70,13 +70,7 @@ const char* loginIndex =
  
 const char* serverIndex =
 "<script src='/jquery.min.js'></script>"
-"Because the lack of an asynchronous webserver in this Arduino sketch like 'ESPAsyncWebServer', <br/>"
-"both file 'serverIndex' and 'jquery.min.js' can't be read from the webserver at the same time. <br/><br/>"
-"Your web browser probably requests those two files simultaneously and therefore <br/>"
-"the javascript file failed to load. By a refresh of this page, the browser cash has already <br/>"
-"load 'serverIndex' file, the web browser will do a second attempt to only read the javascript file. <br/>"
-"This second attempt, with an idle webserver, will be processed.<br/><br/>"
-"Long story short, press F5 (refresh web browser) before uploading your firmware. <br/><br/>"
+"Press F5 (refresh web browser) before uploading your firmware. <br/><br/>"
 "<form method='POST' action='#' enctype='multipart/form-data' id='upload_form'>"
    "<input type='file' name='update'>"
         "<input type='submit' value='Update'>"
@@ -124,7 +118,6 @@ static void onJavaScript(void) {
  * setup function
  */
 void OTA_setup(void) {
-  Serial.begin(115200);
  
   // Connect to WiFi network
   //WiFi.begin(ssid, password);
@@ -138,13 +131,18 @@ void OTA_setup(void) {
   Serial.println(ssid);
   Serial.print("password: ");
   Serial.println(password);
+  
+  IPAddress Ip(192, 168, 1, 1);
+  IPAddress NMask(255, 255, 255, 0);
+  WiFi.softAPConfig(Ip, Ip, NMask);
+
   IPAddress IP = WiFi.softAPIP();
   Serial.print("url: http://");
   Serial.print(IP);
   Serial.println("/ (user: admin, pswd: admin)");
  
   /*use mdns for host name resolution*/
-  if (!MDNS.begin(host)) { //http://esp32.local
+  if (!MDNS.begin(host)) { //http://smartlcd.local
     Serial.println("Error setting up MDNS responder!");
     while (1) {
       delay(1000);
