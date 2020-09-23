@@ -7,7 +7,6 @@
 // TODO : beacon MAC
 // TODO : mode Z
 // TODO : brake disable with high voltage
-// TODO : switch to OTA
 
 //////------------------------------------
 ////// Inludes
