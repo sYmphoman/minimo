@@ -1,3 +1,4 @@
+//////////////////////////////////////////
 // TODO : current loop
 // TODO : speed loop
 // TODO : speed adjustment
@@ -7,6 +8,8 @@
 // TODO : beacon MAC
 // TODO : mode Z
 // TODO : brake disable with high voltage
+// TODO : auto mode shift on low battery
+//////////////////////////////////////////
 
 //////------------------------------------
 ////// Inludes
@@ -28,8 +31,8 @@
 
 #define DEBUG_BLE_SCAN 0
 #define DEBUG_BLE_NOTIFY 0
-#define DEBUG_DISPLAY_FRAME_LCD_TO_CNTRL 0
-#define DEBUG_DISPLAY_FRAME_CNTRL_TO_LCD 0
+#define DEBUG_DISPLAY_FRAME_LCD_TO_CNTRL 1
+#define DEBUG_DISPLAY_FRAME_CNTRL_TO_LCD 1
 #define DEBUG_DISPLAY_SPEED 0
 #define DEBUG_DISPLAY_MODE 0
 #define DEBUG_DISPLAY_BRAKE 0
@@ -42,16 +45,22 @@
 #define DEBUG_SERIAL_CHECKSUM_LCD_TO_CNTRL 0
 #define DEBUG_SERIAL_CHECKSUM_CNTRL_TO_LCD 0
 
+#define ALLOW_LCD_TO_CNTRL_MODIFICATIONS 0
+#define ALLOW_CNTRL_TO_LCD_MODIFICATIONS 0
+
 #define PIN_SERIAL_LCD_TO_ESP 25
 #define PIN_SERIAL_ESP_TO_CNTRL 32
 #define PIN_SERIAL_CNTRL_TO_ESP 26
 #define PIN_SERIAL_ESP_TO_LCD 13
-#define PIN_IN_BRAKE 12
+#define PIN_OUT_RELAY 12
 #define PIN_IN_VOLTAGE 33
 #define PIN_IN_CURRENT 35
 #define PIN_IN_BUTTON1 9
 #define PIN_IN_BUTTON2 10
-#define PIN_IN_DH12 27
+#define PIN_OUT_LED_BUTTON1 14
+#define PIN_OUT_LED_BUTTON2 5
+#define PIN_IN_OUT_DH12 27
+#define PIN_IN_BRAKE 34
 
 #define MODE_LCD_TO_CNTRL 0
 #define MODE_CNTRL_TO_LCD 1
@@ -148,7 +157,7 @@ char data_speed_buffer[4];
 HardwareSerial hwSerCntrlToLcd(1);
 HardwareSerial hwSerLcdToCntrl(2);
 
-DHT_nonblocking dht_sensor(PIN_IN_DH12, DHT_TYPE_11);
+DHT_nonblocking dht_sensor(PIN_IN_OUT_DH12, DHT_TYPE_11);
 
 int i_loop = 0;
 
@@ -615,8 +624,10 @@ class BLECharacteristicCallback : public BLECharacteristicCallbacks
 
 void bleOnScanResults(BLEScanResults scanResults)
 {
+#if DEBUG_BLE_SCAN
   Serial.print("BLE Scan Device found: ");
   Serial.println(scanResults.getCount());
+#endif
 
   bool newBlePicclyVisible = false;
 
@@ -676,15 +687,19 @@ void bleOnScanResults(BLEScanResults scanResults)
       {
         bleLockStatus = 1;
 
+#if DEBUG_BLE_SCAN
         Serial.println(" ==> PICLLY not visible // smartphone not connected ==> LOCK decision");
         Serial.println("-------------------------------------");
+#endif
       }
       else if ((!blePicclyVisible) && (deviceConnected))
       {
         bleLockStatus = 0;
 
+#if DEBUG_BLE_SCAN
         Serial.println(" ==> PICLLY visible // smartphone connected ==> UNLOCK decision");
         Serial.println("-------------------------------------");
+#endif
       }
       else
       {
@@ -696,15 +711,19 @@ void bleOnScanResults(BLEScanResults scanResults)
       {
         bleLockStatus = 1;
 
+#if DEBUG_BLE_SCAN
         Serial.println(" ==> PICLLY not visible ==> LOCK decision");
         Serial.println("-------------------------------------");
+#endif
       }
       else if (blePicclyVisible)
       {
         bleLockStatus = 0;
 
+#if DEBUG_BLE_SCAN
         Serial.println(" ==> PICLLY visible ==> UNLOCK decision");
         Serial.println("-------------------------------------");
+#endif
       }
     }
   }
@@ -760,7 +779,7 @@ void notifyBleLock()
 
 void setupPins()
 {
-  pinMode(PIN_IN_BRAKE, INPUT);
+  //pinMode(PIN_IN_OUT_DH12, INPUT_PULLUP);
   pinMode(PIN_IN_BUTTON1, INPUT_PULLUP);
   pinMode(PIN_IN_BUTTON2, INPUT_PULLUP);
   pinMode(PIN_IN_VOLTAGE, INPUT);
@@ -1569,7 +1588,7 @@ int readHardSerial(int i, HardwareSerial *ss, int serialMode, char data_buffer[]
     //---------------------
     // MODIFY LCD_TO_CNTRL
 
-    if ((!begin_LcdToCntrl) && (serialMode == MODE_LCD_TO_CNTRL))
+    if ((!begin_LcdToCntrl) && (serialMode == MODE_LCD_TO_CNTRL) && ALLOW_LCD_TO_CNTRL_MODIFICATIONS)
     {
       if (i == 5)
       {
@@ -1619,15 +1638,22 @@ int readHardSerial(int i, HardwareSerial *ss, int serialMode, char data_buffer[]
         data_speed_buffer[0] = data_buffer[3];
         data_speed_buffer[1] = data_buffer[5];
         data_speed_buffer[2] = var;
-        var = modifySpeedHigh(var, data_buffer, fakeSpeed);
-        isModified_CntrlToLcd = 1;
+        
+        if (ALLOW_CNTRL_TO_LCD_MODIFICATIONS)
+        {
+          var = modifySpeedHigh(var, data_buffer, fakeSpeed);
+          isModified_CntrlToLcd = 1;
+        }
       }
       if (i == 8)
       {
         data_speed_buffer[3] = var;
-        var = modifySpeedLow(var, data_buffer, fakeSpeed);
-        isModified_CntrlToLcd = 1;
 
+        if (ALLOW_CNTRL_TO_LCD_MODIFICATIONS)
+        {
+          var = modifySpeedLow(var, data_buffer, fakeSpeed);
+          isModified_CntrlToLcd = 1;
+        }
         speedOld = speedCurrent;
         speedCurrent = getSpeed();
       }
