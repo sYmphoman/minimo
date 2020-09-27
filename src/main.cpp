@@ -31,9 +31,9 @@
 
 #define DEBUG_BLE_SCAN 0
 #define DEBUG_BLE_NOTIFY 0
-#define DEBUG_DISPLAY_FRAME_LCD_TO_CNTRL 1
-#define DEBUG_DISPLAY_FRAME_CNTRL_TO_LCD 1
-#define DEBUG_DISPLAY_SPEED 0
+#define DEBUG_DISPLAY_FRAME_LCD_TO_CNTRL 0
+#define DEBUG_DISPLAY_FRAME_CNTRL_TO_LCD 0
+#define DEBUG_DISPLAY_SPEED 1
 #define DEBUG_DISPLAY_MODE 0
 #define DEBUG_DISPLAY_BRAKE 0
 #define DEBUG_DISPLAY_ECO 0
@@ -45,8 +45,8 @@
 #define DEBUG_SERIAL_CHECKSUM_LCD_TO_CNTRL 0
 #define DEBUG_SERIAL_CHECKSUM_CNTRL_TO_LCD 0
 
-#define ALLOW_LCD_TO_CNTRL_MODIFICATIONS 0
-#define ALLOW_CNTRL_TO_LCD_MODIFICATIONS 0
+#define ALLOW_LCD_TO_CNTRL_MODIFICATIONS 1
+#define ALLOW_CNTRL_TO_LCD_MODIFICATIONS 1
 
 #define PIN_SERIAL_LCD_TO_ESP 25
 #define PIN_SERIAL_ESP_TO_CNTRL 32
@@ -151,9 +151,10 @@ uint32_t timeLoop = 0;
 int begin_soft = 0;
 int begin_hard = 0;
 
-char data_buffer_lcd[DATA_BUFFER_SIZE];
-char data_buffer_cntrl[DATA_BUFFER_SIZE];
-char data_speed_buffer[4];
+char data_buffer_lcd_mod[DATA_BUFFER_SIZE];
+char data_buffer_cntrl_mod[DATA_BUFFER_SIZE];
+char data_buffer_lcd_ori[DATA_BUFFER_SIZE];
+char data_buffer_cntrl_ori[DATA_BUFFER_SIZE];
 
 char bleLog[50] = "";
 
@@ -198,9 +199,9 @@ uint8_t accelOrder = 0;
 uint8_t accelLcd = 0;
 uint8_t accelLcdOld = 0;
 
-uint8_t ecoOrder = 0;
-uint8_t ecoLcd = 0;
-uint8_t ecoLcdOld = 0;
+uint8_t ecoOrder = 3;
+uint8_t ecoLcd = 3;
+uint8_t ecoLcdOld = 3;
 
 uint8_t brakeStatus = 0;
 uint8_t brakeStatusOld = 0;
@@ -787,7 +788,6 @@ void notifyBleLogs(char *txt)
   // notify of new log
   pCharacteristicLogs->setValue((uint8_t *)txt, strlen(txt));
   pCharacteristicLogs->notify();
-
 }
 
 void setupPins()
@@ -1147,9 +1147,35 @@ void displayFrame(int mode, char data_buffer[], byte checksum)
           data_buffer[14],
           checksum);
 
-  notifyBleLogs(print_buffer);
-
   Serial.println(print_buffer);
+}
+
+void notifyBleLogFrame(int mode, char data_buffer[], byte checksum)
+{
+
+  char print_buffer[500];
+
+  // for excel
+  sprintf(print_buffer, "(%d) %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x %02x / %02x",
+          mode,
+          data_buffer[0],
+          data_buffer[1],
+          data_buffer[2],
+          data_buffer[3],
+          data_buffer[4],
+          data_buffer[5],
+          data_buffer[6],
+          data_buffer[7],
+          data_buffer[8],
+          data_buffer[9],
+          data_buffer[10],
+          data_buffer[11],
+          data_buffer[12],
+          data_buffer[13],
+          data_buffer[14],
+          checksum);
+
+  notifyBleLogs(print_buffer);
 }
 
 void displaySpeed()
@@ -1532,10 +1558,10 @@ uint8_t modifyAccel(char var, char data_buffer[])
 
 uint8_t getSpeed()
 {
-  uint8_t high1 = (data_speed_buffer[2] - data_speed_buffer[0]) & 0xff;
-  uint8_t offset_regul = (data_speed_buffer[1] - data_speed_buffer[0]) & 0xff;
+  uint8_t high1 = (data_buffer_cntrl_ori[7] - data_buffer_cntrl_ori[3]) & 0xff;
+  uint8_t offset_regul = (data_buffer_cntrl_ori[5] - data_buffer_cntrl_ori[3]) & 0xff;
   uint8_t high2 = (high1 - offset_regul) & 0xff;
-  uint8_t low = (data_speed_buffer[3] - data_speed_buffer[0]);
+  uint8_t low = (data_buffer_cntrl_ori[8] - data_buffer_cntrl_ori[3]);
 
   //  int speed = (((int)high2 * 256) + (low)) / 20.5;
 
@@ -1574,7 +1600,7 @@ uint8_t modifySpeedLow(char var, char data_buffer[], int fakeSpeed)
   //}
 }
 
-int readHardSerial(int i, HardwareSerial *ss, int serialMode, char data_buffer[])
+int readHardSerial(int i, HardwareSerial *ss, int serialMode, char data_buffer_ori[], char data_buffer_mod[])
 {
 
   byte var;
@@ -1583,6 +1609,7 @@ int readHardSerial(int i, HardwareSerial *ss, int serialMode, char data_buffer[]
   {
 
     var = ss->read();
+    data_buffer_ori[i] = var;
 
     // LCD -> CNTRL
     if (serialMode == MODE_LCD_TO_CNTRL)
@@ -1590,7 +1617,7 @@ int readHardSerial(int i, HardwareSerial *ss, int serialMode, char data_buffer[]
       if ((var == 0xAA) && (begin_LcdToCntrl == 1))
       {
         begin_LcdToCntrl = 0;
-        
+
         char log[] = PSTR(" ===> detect begin 0xAA / LCD_TO_ESP");
         Serial.println(log);
         notifyBleLogs(log);
@@ -1622,31 +1649,31 @@ int readHardSerial(int i, HardwareSerial *ss, int serialMode, char data_buffer[]
       if (i == 5)
       {
 
-        var = modifyMode(var, data_buffer);
+        var = modifyMode(var, data_buffer_ori);
         isModified_LcdToCntrl = 1;
       }
 
       if (i == 7)
       {
-        var = modifyPower(var, data_buffer);
+        var = modifyPower(var, data_buffer_ori);
         isModified_LcdToCntrl = 1;
       }
 
       if (i == 10)
       {
-        var = modifyBrake(var, data_buffer);
+        var = modifyBrake(var, data_buffer_ori);
         isModified_LcdToCntrl = 1;
       }
 
       if (i == 11)
       {
-        var = modifyEco(var, data_buffer);
+        var = modifyEco(var, data_buffer_ori);
         isModified_LcdToCntrl = 1;
       }
 
       if (i == 12)
       {
-        var = modifyAccel(var, data_buffer);
+        var = modifyAccel(var, data_buffer_ori);
         isModified_LcdToCntrl = 1;
       }
     }
@@ -1658,40 +1685,38 @@ int readHardSerial(int i, HardwareSerial *ss, int serialMode, char data_buffer[]
     {
       if (i == 4)
       {
-        getBrakeFromLCD(var, data_buffer);
+        getBrakeFromLCD(var, data_buffer_ori);
       }
 
       // modify speed
       if (i == 7)
       {
-        data_speed_buffer[0] = data_buffer[3];
-        data_speed_buffer[1] = data_buffer[5];
-        data_speed_buffer[2] = var;
-
         if (ALLOW_CNTRL_TO_LCD_MODIFICATIONS)
         {
-          var = modifySpeedHigh(var, data_buffer, fakeSpeed);
+          /*
+          var = modifySpeedHigh(var, data_buffer_mod, fakeSpeed);
           isModified_CntrlToLcd = 1;
+          */
         }
       }
       if (i == 8)
       {
-        data_speed_buffer[3] = var;
-
+        /*
         if (ALLOW_CNTRL_TO_LCD_MODIFICATIONS)
         {
-          var = modifySpeedLow(var, data_buffer, fakeSpeed);
+          var = modifySpeedLow(var, data_buffer_mod, fakeSpeed);
           isModified_CntrlToLcd = 1;
         }
+        */
         speedOld = speedCurrent;
         speedCurrent = getSpeed();
       }
     }
 
-    // CHECKSUM
+    // GENERATE CHECKSUM
     if ((isModified_LcdToCntrl == 1) && (i == 14) && (serialMode == MODE_LCD_TO_CNTRL))
     {
-      var = getCheckSum(data_buffer);
+      var = getCheckSum(data_buffer_mod);
 
 #if DEBUG_SERIAL_CHECKSUM_LCD_TO_CNTRL
       char print_buffer[500];
@@ -1707,7 +1732,7 @@ int readHardSerial(int i, HardwareSerial *ss, int serialMode, char data_buffer[]
     }
     else if (((isModified_CntrlToLcd) == 1) && (i == 14) && (serialMode == MODE_CNTRL_TO_LCD))
     {
-      var = getCheckSum(data_buffer);
+      var = getCheckSum(data_buffer_mod);
 
 #if DEBUG_SERIAL_CHECKSUM_CNTRL_TO_LCD
       char print_buffer[500];
@@ -1722,7 +1747,7 @@ int readHardSerial(int i, HardwareSerial *ss, int serialMode, char data_buffer[]
       isModified_CntrlToLcd = 0;
     }
 
-    data_buffer[i] = var;
+    data_buffer_mod[i] = var;
 
     ss->write(var);
 
@@ -1730,12 +1755,14 @@ int readHardSerial(int i, HardwareSerial *ss, int serialMode, char data_buffer[]
     if (i == 14)
     {
 
-      uint8_t checksum = getCheckSum(data_buffer);
+      // Check original checksum
+      uint8_t checksum = getCheckSum(data_buffer_ori);
 
       if (serialMode == MODE_CNTRL_TO_LCD)
       {
+        notifyBleLogFrame(serialMode, data_buffer_mod, checksum);
 #if DEBUG_DISPLAY_FRAME_CNTRL_TO_LCD
-        displayFrame(serialMode, data_buffer, checksum);
+        displayFrame(serialMode, data_buffer_mod, checksum);
 #endif
 #if DEBUG_DISPLAY_SPEED
         displaySpeed();
@@ -1743,15 +1770,16 @@ int readHardSerial(int i, HardwareSerial *ss, int serialMode, char data_buffer[]
       }
       else
       {
+        notifyBleLogFrame(serialMode, data_buffer_mod, checksum);
 #if DEBUG_DISPLAY_FRAME_LCD_TO_CNTRL
-        displayFrame(serialMode, data_buffer, checksum);
+        displayFrame(serialMode, data_buffer_mod, checksum);
 #endif
 #if DEBUG_DISPLAY_MODE
-        displayMode(data_buffer);
+        displayMode(data_buffer_mod);
 #endif
       }
 
-      if (checksum != data_buffer[14])
+      if (checksum != data_buffer_ori[14])
       {
         char log[] = "====> CHECKSUM error ==> reset";
         Serial.println(log);
@@ -1777,11 +1805,11 @@ int readHardSerial(int i, HardwareSerial *ss, int serialMode, char data_buffer[]
 void processSerial()
 {
   // read/write LCD -> CNTRL
-  //  i_LcdToCntrl = readSoftSerial(i_LcdToCntrl, &swSerLcdToCntrl, MODE_LCD_TO_CNTRL, data_buffer_lcd);
-  i_LcdToCntrl = readHardSerial(i_LcdToCntrl, &hwSerLcdToCntrl, MODE_LCD_TO_CNTRL, data_buffer_lcd);
+  //  i_LcdToCntrl = readSoftSerial(i_LcdToCntrl, &swSerLcdToCntrl, MODE_LCD_TO_CNTRL, data_buffer_lcd_mod);
+  i_LcdToCntrl = readHardSerial(i_LcdToCntrl, &hwSerLcdToCntrl, MODE_LCD_TO_CNTRL, data_buffer_lcd_ori, data_buffer_lcd_mod);
 
-  //i_CntrlToLcd = readSoftSerial(i_CntrlToLcd, &swSerCntrlToLcd, MODE_CNTRL_TO_LCD, data_buffer_cntrl);
-  i_CntrlToLcd = readHardSerial(i_CntrlToLcd, &hwSerCntrlToLcd, MODE_CNTRL_TO_LCD, data_buffer_cntrl);
+  //i_CntrlToLcd = readSoftSerial(i_CntrlToLcd, &swSerCntrlToLcd, MODE_CNTRL_TO_LCD, data_buffer_cntrl_mod);
+  i_CntrlToLcd = readHardSerial(i_CntrlToLcd, &hwSerCntrlToLcd, MODE_CNTRL_TO_LCD, data_buffer_cntrl_ori, data_buffer_cntrl_mod);
 }
 
 void processBLE()
