@@ -76,7 +76,7 @@
 #define EEPROM_ADDRESS_SETTINGS 0
 #define EEPROM_ADDRESS_BLE_LOCK_FORCED 100
 
-#define BLE_MTU 64
+#define BLE_MTU 128
 
 // See the following for generating UUIDs: https://www.uuidgenerator.net/
 #define SERVICE_UUID "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
@@ -95,6 +95,7 @@
 #define ACCEL_CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26ac"
 #define CURRENT_CALIB_CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26ad"
 #define SWITCH_TO_OTA_CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26ae"
+#define LOGS_CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26af"
 
 //////------------------------------------
 ////// Variables
@@ -153,6 +154,8 @@ int begin_hard = 0;
 char data_buffer_lcd[DATA_BUFFER_SIZE];
 char data_buffer_cntrl[DATA_BUFFER_SIZE];
 char data_speed_buffer[4];
+
+char bleLog[50] = "";
 
 HardwareSerial hwSerCntrlToLcd(1);
 HardwareSerial hwSerLcdToCntrl(2);
@@ -234,6 +237,7 @@ BLECharacteristic *pCharacteristicEco = NULL;
 BLECharacteristic *pCharacteristicAccel = NULL;
 BLECharacteristic *pCharacteristicCurrentCalib = NULL;
 BLECharacteristic *pCharacteristicOtaSwitch = NULL;
+BLECharacteristic *pCharacteristicLogs = NULL;
 
 bool deviceConnected = false;
 bool oldDeviceConnected = false;
@@ -777,6 +781,15 @@ void notifyBleLock()
 #endif
 }
 
+void notifyBleLogs(char *txt)
+{
+
+  // notify of new log
+  pCharacteristicLogs->setValue((uint8_t *)txt, strlen(txt));
+  pCharacteristicLogs->notify();
+
+}
+
 void setupPins()
 {
   //pinMode(PIN_IN_OUT_DH12, INPUT_PULLUP);
@@ -795,7 +808,6 @@ void setupBLE()
   // Create the BLE Device
   Serial.println("init");
   BLEDevice::init("SmartLCD");
-  Serial.println("mtu set 2");
   BLEDevice::setMTU(BLE_MTU);
 
   int mtu = BLEDevice::getMTU();
@@ -891,6 +903,10 @@ void setupBLE()
       SWITCH_TO_OTA_CHARACTERISTIC_UUID,
       BLECharacteristic::PROPERTY_WRITE);
 
+  pCharacteristicLogs = pService->createCharacteristic(
+      LOGS_CHARACTERISTIC_UUID,
+      BLECharacteristic::PROPERTY_NOTIFY);
+
   pCharacteristicSpeed->addDescriptor(new BLE2902());
   pCharacteristicMode->addDescriptor(new BLE2902());
   pCharacteristicBrakeSentOrder->addDescriptor(new BLE2902());
@@ -906,6 +922,7 @@ void setupBLE()
   pCharacteristicAccel->addDescriptor(new BLE2902());
   pCharacteristicCurrentCalib->addDescriptor(new BLE2902());
   pCharacteristicOtaSwitch->addDescriptor(new BLE2902());
+  pCharacteristicLogs->addDescriptor(new BLE2902());
 
   pCharacteristicSpeed->setCallbacks(new BLECharacteristicCallback());
   pCharacteristicMode->setCallbacks(new BLECharacteristicCallback());
@@ -922,6 +939,7 @@ void setupBLE()
   pCharacteristicAccel->setCallbacks(new BLECharacteristicCallback());
   pCharacteristicCurrentCalib->setCallbacks(new BLECharacteristicCallback());
   pCharacteristicOtaSwitch->setCallbacks(new BLECharacteristicCallback());
+  pCharacteristicLogs->setCallbacks(new BLECharacteristicCallback());
 
   // Start the service
   pService->start();
@@ -1128,6 +1146,8 @@ void displayFrame(int mode, char data_buffer[], byte checksum)
           data_buffer[13],
           data_buffer[14],
           checksum);
+
+  notifyBleLogs(print_buffer);
 
   Serial.println(print_buffer);
 }
@@ -1570,7 +1590,11 @@ int readHardSerial(int i, HardwareSerial *ss, int serialMode, char data_buffer[]
       if ((var == 0xAA) && (begin_LcdToCntrl == 1))
       {
         begin_LcdToCntrl = 0;
-        Serial.println(PSTR(" ===> detect begin AA"));
+        
+        char log[] = PSTR(" ===> detect begin 0xAA");
+        Serial.println(log);
+        notifyBleLogs(log);
+
         i = 0;
       }
     }
@@ -1579,8 +1603,13 @@ int readHardSerial(int i, HardwareSerial *ss, int serialMode, char data_buffer[]
     {
       if ((var == 0x36) && (begin_CntrlToLcd == 1))
       {
+
         begin_CntrlToLcd = 0;
-        Serial.println(PSTR(" ===> detect begin 36"));
+
+        char log[] = PSTR(" ===> detect begin 0x36");
+        Serial.println(log);
+        notifyBleLogs(log);
+
         i = 0;
       }
     }
@@ -1638,7 +1667,7 @@ int readHardSerial(int i, HardwareSerial *ss, int serialMode, char data_buffer[]
         data_speed_buffer[0] = data_buffer[3];
         data_speed_buffer[1] = data_buffer[5];
         data_speed_buffer[2] = var;
-        
+
         if (ALLOW_CNTRL_TO_LCD_MODIFICATIONS)
         {
           var = modifySpeedHigh(var, data_buffer, fakeSpeed);
@@ -1662,7 +1691,6 @@ int readHardSerial(int i, HardwareSerial *ss, int serialMode, char data_buffer[]
     // CHECKSUM
     if ((isModified_LcdToCntrl == 1) && (i == 14) && (serialMode == MODE_LCD_TO_CNTRL))
     {
-      uint8_t oldChecksum = var;
       var = getCheckSum(data_buffer);
 
 #if DEBUG_SERIAL_CHECKSUM_LCD_TO_CNTRL
@@ -1679,8 +1707,6 @@ int readHardSerial(int i, HardwareSerial *ss, int serialMode, char data_buffer[]
     }
     else if (((isModified_CntrlToLcd) == 1) && (i == 14) && (serialMode == MODE_CNTRL_TO_LCD))
     {
-
-      uint8_t oldChecksum = var;
       var = getCheckSum(data_buffer);
 
 #if DEBUG_SERIAL_CHECKSUM_CNTRL_TO_LCD
@@ -1727,7 +1753,9 @@ int readHardSerial(int i, HardwareSerial *ss, int serialMode, char data_buffer[]
 
       if (checksum != data_buffer[14])
       {
-        Serial.println("====> CHECKSUM error ==> reset");
+        char log[] = "====> CHECKSUM error ==> reset";
+        Serial.println(log);
+        notifyBleLogs(log);
 
         if (serialMode == MODE_LCD_TO_CNTRL)
           begin_LcdToCntrl = 1;
