@@ -1591,7 +1591,7 @@ int readHardSerial(int i, HardwareSerial *ss, int serialMode, char data_buffer[]
       {
         begin_LcdToCntrl = 0;
         
-        char log[] = PSTR(" ===> detect begin 0xAA");
+        char log[] = PSTR(" ===> detect begin 0xAA / LCD_TO_ESP");
         Serial.println(log);
         notifyBleLogs(log);
 
@@ -1606,7 +1606,7 @@ int readHardSerial(int i, HardwareSerial *ss, int serialMode, char data_buffer[]
 
         begin_CntrlToLcd = 0;
 
-        char log[] = PSTR(" ===> detect begin 0x36");
+        char log[] = PSTR(" ===> detect begin 0x36 / CNTRL_TO_ESP");
         Serial.println(log);
         notifyBleLogs(log);
 
