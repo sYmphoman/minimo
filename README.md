@@ -72,7 +72,7 @@ I have no skills in iPhone apps. If anyone wants to develop, let me know.
     - [ ] Speed loop regulation
     - [ ] Current loop regulation
     - [ ] Custom acceleration curve
-    - [ ] Data logging
+    - [X] Data logging
     - [ ] Wifi connexion for dashboard display and settings
     - [ ] Advanced diagnosis (serial errors, throtle errors ...)
 - [ ] Android app
