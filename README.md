@@ -72,13 +72,13 @@ I have no skills in iPhone apps. If anyone wants to develop, let me know.
     - [ ] Speed loop regulation
     - [ ] Current loop regulation
     - [ ] Custom acceleration curve
-    - [X] Data logging
     - [ ] Wifi connexion for dashboard display and settings
     - [ ] Advanced diagnosis (serial errors, throtle errors ...)
 - [ ] Android app
     - [X] display : speed, mode, voltage, current, power, brake mode (PA), max speed, max power, max current, temperature, humidity, time, moving time
     - [X] auto-launch app with NFC tag
     - [X] parameters custom settings
+    - [X] Data logging
     - [ ] display : average speed, distance
     - [ ] history graphics
 
