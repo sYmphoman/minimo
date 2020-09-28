@@ -79,6 +79,7 @@ I have no skills in iPhone apps. If anyone wants to develop, let me know.
     - [X] display : speed, mode, voltage, current, power, brake mode (PA), max speed, max power, max current, temperature, humidity, time, moving time
     - [X] auto-launch app with NFC tag
     - [X] parameters custom settings
+    - [ ] display : average speed, distance
     - [ ] history graphics
 
 - [ ] iPhone app => for someone else
