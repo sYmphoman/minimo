@@ -44,6 +44,7 @@ I have no skills in iPhone apps. If anyone wants to develop, let me know.
     - [X] Read/write serial link CNTRL_TO_LCD
     - [X] Decode speed/mode/brake/regulator from serial link
     - [X] Frame error detection
+    - [ ] Error codes processing
 - [ ] Serial Kaabo / Zero / Appolo
 - [ ] Bluetooth 
     - [X] Communication with Android
