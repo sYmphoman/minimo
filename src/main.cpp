@@ -33,7 +33,8 @@
 #define DEBUG_BLE_NOTIFY 0
 #define DEBUG_DISPLAY_FRAME_LCD_TO_CNTRL 0
 #define DEBUG_DISPLAY_FRAME_CNTRL_TO_LCD 0
-#define DEBUG_DISPLAY_SPEED 1
+#define DEBUG_DISPLAY_DECODED_FRAME_CNTRL_TO_LCD 1
+#define DEBUG_DISPLAY_SPEED 0
 #define DEBUG_DISPLAY_MODE 0
 #define DEBUG_DISPLAY_BRAKE 0
 #define DEBUG_DISPLAY_ECO 0
@@ -68,7 +69,7 @@
 #define DATA_BUFFER_SIZE 30
 #define BAUD_RATE 1200
 
-#define ANALOG_TO_VOLTS 43.48
+#define ANALOG_TO_VOLTS 45.9
 #define ANALOG_TO_CURRENT 35
 #define NB_CURRENT_CALIB 3000
 
@@ -133,6 +134,7 @@ struct field_s
   uint8_t Wheel_size;
   uint8_t Motor_pole_number;
   uint8_t Bluetooth_lock_mode;
+  int8_t LCD_Speed_adjustement;
 
 } __attribute__((packed));
 #pragma pack(pop)
@@ -187,7 +189,7 @@ int isModified_CntrlToLcd = 0;
 
 uint8_t speedCurrent = 0;
 uint8_t speedOld = 0;
-uint8_t fakeSpeed = 25;
+uint8_t speedFake = 25;
 
 uint8_t powerReduction = 0;
 
@@ -755,7 +757,6 @@ void bleOnScanResults(BLEScanResults scanResults)
     }
     */
 
-  Serial.println("-------------------------------------");
 }
 
 void notifyBleLock()
@@ -1120,6 +1121,8 @@ void displaySettings()
   Serial.println(settings.fields.Motor_pole_number);
   Serial.print("// Bluetooth_lock_mode : ");
   Serial.println(settings.fields.Bluetooth_lock_mode);
+  Serial.print("// LCD_Speed_adjustement : ");
+  Serial.println(settings.fields.LCD_Speed_adjustement);
 }
 
 void displayFrame(int mode, char data_buffer[], byte checksum)
@@ -1149,6 +1152,28 @@ void displayFrame(int mode, char data_buffer[], byte checksum)
 
   Serial.println(print_buffer);
 }
+
+void displayDecodedFrame(int mode, char data_buffer[], byte checksum)
+{
+
+  char print_buffer[500];
+
+  // for excel
+  sprintf(print_buffer, "%02x %02x %02x %02x %02x %02x %02x %02x %02x %02x",
+          data_buffer[1],
+          (data_buffer[4] - data_buffer[3]) & 0xff,
+          (data_buffer[5] - data_buffer[3]) & 0xff,
+          (data_buffer[7] - data_buffer[3]) & 0xff,
+          (data_buffer[8] - data_buffer[3]) & 0xff,
+          (data_buffer[9] - data_buffer[3]) & 0xff,
+          (data_buffer[10] - data_buffer[3]) & 0xff,
+          (data_buffer[11] - data_buffer[3]) & 0xff,
+          (data_buffer[12] - data_buffer[3]) & 0xff,
+          (data_buffer[13] - data_buffer[3]) & 0xff);
+
+  Serial.println(print_buffer);
+}
+
 
 void notifyBleLogFrame(int mode, char data_buffer[], byte checksum)
 {
@@ -1563,41 +1588,43 @@ uint8_t getSpeed()
   uint8_t high2 = (high1 - offset_regul) & 0xff;
   uint8_t low = (data_buffer_cntrl_ori[8] - data_buffer_cntrl_ori[3]);
 
-  //  int speed = (((int)high2 * 256) + (low)) / 20.5;
-
   int speed = (((int)high2 * 256) + (low));
   speed = speed * (settings.fields.Wheel_size / 10.0) / settings.fields.Motor_pole_number / 10.5;
 
   return speed;
 }
 
-uint8_t modifySpeedHigh(char var, char data_buffer[], int fakeSpeed)
+uint16_t generateSpeedRawValue(int fakeSpeed)
 {
+  uint16_t rawValue;
+  rawValue = fakeSpeed / (settings.fields.Wheel_size / 10.0) * settings.fields.Motor_pole_number * 10.5;
 
-  // modify speed
-  // if (speedOld => fakeSpeed)
-  // {
-  //   // modify speed
-  //   return ((0x01 + data_buffer[3]) & 0xff);
-  // }
-  // else
-  // {
-  return var;
-  //}
+  return rawValue;
 }
 
-uint8_t modifySpeedLow(char var, char data_buffer[], int fakeSpeed)
+uint8_t modifySpeed(char var, char data_buffer[], int speedFake)
 {
 
-  // modify speed
-  // if (speedOld => fakeSpeed)
-  // {
-  //   return ((0xf0 + data_buffer[3]) & 0xff);
-  // }
-  // else
-  // {
-  return var;
-  //}
+  uint8_t isModified = 0;
+
+  // LCD Speed adjustement
+  if (settings.fields.LCD_Speed_adjustement != 0)
+  {
+    uint16_t rawSpeed = generateSpeedRawValue(speedCurrent * ((settings.fields.LCD_Speed_adjustement + 100) / 100.0));
+
+    uint8_t low = rawSpeed & 0xff;
+    uint8_t high = (rawSpeed >> 8) & 0xff;
+
+    uint8_t regulatorOffset = data_buffer[5] - data_buffer[3];
+    //uint8_t regulatorOffset = 0;
+
+    data_buffer[7] = (((high + regulatorOffset) & 0xff) + data_buffer[3]) & 0xff;
+    data_buffer[8] = (low + data_buffer[3]) & 0xff;
+
+    isModified = 1;
+  }
+
+  return isModified;
 }
 
 int readHardSerial(int i, HardwareSerial *ss, int serialMode, char data_buffer_ori[], char data_buffer_mod[])
@@ -1643,8 +1670,8 @@ int readHardSerial(int i, HardwareSerial *ss, int serialMode, char data_buffer_o
 
     //---------------------
     // MODIFY LCD_TO_CNTRL
-
-    if ((!begin_LcdToCntrl) && (serialMode == MODE_LCD_TO_CNTRL) && ALLOW_LCD_TO_CNTRL_MODIFICATIONS)
+#if ALLOW_LCD_TO_CNTRL_MODIFICATIONS
+    if ((!begin_LcdToCntrl) && (serialMode == MODE_LCD_TO_CNTRL))
     {
       if (i == 5)
       {
@@ -1677,6 +1704,7 @@ int readHardSerial(int i, HardwareSerial *ss, int serialMode, char data_buffer_o
         isModified_LcdToCntrl = 1;
       }
     }
+#endif
 
     //---------------------
     // MODIFY CNTRL_TO_LCD
@@ -1689,62 +1717,53 @@ int readHardSerial(int i, HardwareSerial *ss, int serialMode, char data_buffer_o
       }
 
       // modify speed
-      if (i == 7)
-      {
-        if (ALLOW_CNTRL_TO_LCD_MODIFICATIONS)
-        {
-          /*
-          var = modifySpeedHigh(var, data_buffer_mod, fakeSpeed);
-          isModified_CntrlToLcd = 1;
-          */
-        }
-      }
       if (i == 8)
       {
-        /*
-        if (ALLOW_CNTRL_TO_LCD_MODIFICATIONS)
-        {
-          var = modifySpeedLow(var, data_buffer_mod, fakeSpeed);
-          isModified_CntrlToLcd = 1;
-        }
-        */
-        speedOld = speedCurrent;
+#if ALLOW_CNTRL_TO_LCD_MODIFICATIONS
         speedCurrent = getSpeed();
+        isModified_CntrlToLcd = modifySpeed(var, data_buffer_mod, speedFake);
+#endif
+
+        speedOld = speedCurrent;
       }
     }
 
     // GENERATE CHECKSUM
-    if ((isModified_LcdToCntrl == 1) && (i == 14) && (serialMode == MODE_LCD_TO_CNTRL))
+    if (i == 14)
     {
-      var = getCheckSum(data_buffer_mod);
+
+      if ((isModified_LcdToCntrl == 1) && (serialMode == MODE_LCD_TO_CNTRL))
+      {
+        var = getCheckSum(data_buffer_mod);
 
 #if DEBUG_SERIAL_CHECKSUM_LCD_TO_CNTRL
-      char print_buffer[500];
-      sprintf(print_buffer, "%02x %02x",
-              oldChecksum,
-              var);
+        char print_buffer[500];
+        sprintf(print_buffer, "%02x %02x",
+                oldChecksum,
+                var);
 
-      Serial.print(" ===> modified checksum LCD_TO_CNTRL : ");
-      Serial.println(print_buffer);
+        Serial.print(" ===> modified checksum LCD_TO_CNTRL : ");
+        Serial.println(print_buffer);
 #endif
 
-      isModified_LcdToCntrl = 0;
-    }
-    else if (((isModified_CntrlToLcd) == 1) && (i == 14) && (serialMode == MODE_CNTRL_TO_LCD))
-    {
-      var = getCheckSum(data_buffer_mod);
+        isModified_LcdToCntrl = 0;
+      }
+      else if (((isModified_CntrlToLcd) == 1) && (i == 14) && (serialMode == MODE_CNTRL_TO_LCD))
+      {
+        var = getCheckSum(data_buffer_mod);
 
 #if DEBUG_SERIAL_CHECKSUM_CNTRL_TO_LCD
-      char print_buffer[500];
-      sprintf(print_buffer, "%02x %02x",
-              oldChecksum,
-              var);
+        char print_buffer[500];
+        sprintf(print_buffer, "%02x %02x",
+                oldChecksum,
+                var);
 
-      Serial.print(" ===> modified checksum CNTRL_TO_LCD : ");
-      Serial.println(print_buffer);
+        Serial.print(" ===> modified checksum CNTRL_TO_LCD : ");
+        Serial.println(print_buffer);
 #endif
 
-      isModified_CntrlToLcd = 0;
+        isModified_CntrlToLcd = 0;
+      }
     }
 
     data_buffer_mod[i] = var;
@@ -1763,6 +1782,11 @@ int readHardSerial(int i, HardwareSerial *ss, int serialMode, char data_buffer_o
         notifyBleLogFrame(serialMode, data_buffer_mod, checksum);
 #if DEBUG_DISPLAY_FRAME_CNTRL_TO_LCD
         displayFrame(serialMode, data_buffer_mod, checksum);
+        displayFrame(serialMode, data_buffer_ori, checksum);
+#endif
+#if DEBUG_DISPLAY_DECODED_FRAME_CNTRL_TO_LCD
+        displayDecodedFrame(serialMode, data_buffer_mod, checksum);
+//        displayDecodedFrame(serialMode, data_buffer_ori, checksum);
 #endif
 #if DEBUG_DISPLAY_SPEED
         displaySpeed();
