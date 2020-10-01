@@ -66,6 +66,7 @@ I have no skills in iPhone apps. If anyone wants to develop, let me know.
     - [ ] Progressive electric braking (hardware detection)
     - [X] Current measure auto calibration (at startup)
     - [X] Current measure manual calibration
+    - [X] LCD Speed adjustment
     - [ ] Speed limiter at startup
     - [ ] Customize modes with different power / max speed
     - [ ] Remote physical button to change mode (or other features)
@@ -79,8 +80,8 @@ I have no skills in iPhone apps. If anyone wants to develop, let me know.
     - [X] auto-launch app with NFC tag
     - [X] parameters custom settings
     - [X] Data logging
+    - [X] history graphics
     - [ ] display : average speed, distance
-    - [ ] history graphics
 
 - [ ] iPhone app => for someone else
 
