@@ -80,8 +80,8 @@ I have no skills in iPhone apps. If anyone wants to develop, let me know.
     - [X] auto-launch app with NFC tag
     - [X] parameters custom settings
     - [X] Data logging
+    - [X] history graphics
     - [ ] display : average speed, distance
-    - [ ] history graphics
 
 - [ ] iPhone app => for someone else
 
