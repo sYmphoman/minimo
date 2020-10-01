@@ -33,8 +33,8 @@
 #define DEBUG_BLE_NOTIFY 0
 #define DEBUG_DISPLAY_FRAME_LCD_TO_CNTRL 0
 #define DEBUG_DISPLAY_FRAME_CNTRL_TO_LCD 0
-#define DEBUG_DISPLAY_DECODED_FRAME_CNTRL_TO_LCD 1
-#define DEBUG_DISPLAY_SPEED 0
+#define DEBUG_DISPLAY_DECODED_FRAME_CNTRL_TO_LCD 0
+#define DEBUG_DISPLAY_SPEED 1
 #define DEBUG_DISPLAY_MODE 0
 #define DEBUG_DISPLAY_BRAKE 0
 #define DEBUG_DISPLAY_ECO 0
@@ -69,7 +69,7 @@
 #define DATA_BUFFER_SIZE 30
 #define BAUD_RATE 1200
 
-#define ANALOG_TO_VOLTS 45.9
+#define ANALOG_TO_VOLTS 46
 #define ANALOG_TO_CURRENT 35
 #define NB_CURRENT_CALIB 3000
 
@@ -97,6 +97,7 @@
 #define CURRENT_CALIB_CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26ad"
 #define SWITCH_TO_OTA_CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26ae"
 #define LOGS_CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26af"
+#define FAST_UPDATE_CHARACTERISTIC_UUID "beb5483e-36e1-4688-b7f5-ea07361b26b0"
 
 //////------------------------------------
 ////// Variables
@@ -174,6 +175,8 @@ int8_t blePicclyVisible = 0;
 int8_t blePicclyRSSI = 0;
 int8_t bleLockForced = 0;
 
+int8_t fastUpdate = 0;
+
 uint8_t speedLimiter = 1;
 
 float currentHumidity = 0.0;
@@ -220,7 +223,7 @@ uint8_t button2Status = 0;
 
 uint16_t voltageStatus = 0;
 uint32_t voltageInMilliVolts = 0;
-MedianFilter voltageFilter(100, 0);
+MedianFilter voltageFilter(200, 0);
 MedianFilter currentFilter(100, 0);
 MedianFilter currentFilterInit(100, 0);
 
@@ -241,6 +244,7 @@ BLECharacteristic *pCharacteristicAccel = NULL;
 BLECharacteristic *pCharacteristicCurrentCalib = NULL;
 BLECharacteristic *pCharacteristicOtaSwitch = NULL;
 BLECharacteristic *pCharacteristicLogs = NULL;
+BLECharacteristic *pCharacteristicFastUpdate = NULL;
 
 bool deviceConnected = false;
 bool oldDeviceConnected = false;
@@ -496,6 +500,16 @@ class BLECharacteristicCallback : public BLECharacteristicCallbacks
 
       // Enable wifi & OTA
       inOtaMode = true;
+    }
+    else if (pCharacteristic->getUUID().toString() == FAST_UPDATE_CHARACTERISTIC_UUID)
+    {
+      Serial.println("Write FAST_UPDATE_CHARACTERISTIC_UUID");
+
+      std::string rxValue = pCharacteristic->getValue();
+      fastUpdate = rxValue[0];
+
+      Serial.print("Fast update = ");
+      Serial.println(fastUpdate);
     }
   }
 
@@ -756,7 +770,6 @@ void bleOnScanResults(BLEScanResults scanResults)
       }
     }
     */
-
 }
 
 void notifyBleLock()
@@ -801,6 +814,8 @@ void setupPins()
 
   //  pinMode(PIN_IN_DH12, INPUT_PULLUP);
   pinMode(14, OUTPUT);
+
+  analogSetClockDiv(255); // 1338mS
 }
 
 void setupBLE()
@@ -820,7 +835,7 @@ void setupBLE()
   pServer->setCallbacks(new BLEServerCallback());
 
   // Create the BLE Service
-  BLEService *pService = pServer->createService(BLEUUID(SERVICE_UUID), 50);
+  BLEService *pService = pServer->createService(BLEUUID(SERVICE_UUID), 80);
 
   // Create a BLE Characteristic
   pCharacteristicSpeed = pService->createCharacteristic(
@@ -908,6 +923,10 @@ void setupBLE()
       LOGS_CHARACTERISTIC_UUID,
       BLECharacteristic::PROPERTY_NOTIFY);
 
+  pCharacteristicFastUpdate = pService->createCharacteristic(
+      FAST_UPDATE_CHARACTERISTIC_UUID,
+      BLECharacteristic::PROPERTY_WRITE);
+
   pCharacteristicSpeed->addDescriptor(new BLE2902());
   pCharacteristicMode->addDescriptor(new BLE2902());
   pCharacteristicBrakeSentOrder->addDescriptor(new BLE2902());
@@ -924,6 +943,7 @@ void setupBLE()
   pCharacteristicCurrentCalib->addDescriptor(new BLE2902());
   pCharacteristicOtaSwitch->addDescriptor(new BLE2902());
   pCharacteristicLogs->addDescriptor(new BLE2902());
+  pCharacteristicFastUpdate->addDescriptor(new BLE2902());
 
   pCharacteristicSpeed->setCallbacks(new BLECharacteristicCallback());
   pCharacteristicMode->setCallbacks(new BLECharacteristicCallback());
@@ -941,6 +961,7 @@ void setupBLE()
   pCharacteristicCurrentCalib->setCallbacks(new BLECharacteristicCallback());
   pCharacteristicOtaSwitch->setCallbacks(new BLECharacteristicCallback());
   pCharacteristicLogs->setCallbacks(new BLECharacteristicCallback());
+  pCharacteristicFastUpdate->setCallbacks(new BLECharacteristicCallback());
 
   // Start the service
   pService->start();
@@ -963,10 +984,8 @@ void setupBLE()
 void setupSerial()
 {
 
-  //  swSerLcdToCntrl.begin(BAUD_RATE, SWSERIAL_8N1, PIN_SERIAL_LCD_TO_CNTRL_RX, SERIAL_LCD_TO_CNTRL_TXPIN, false, 256);
   hwSerLcdToCntrl.begin(BAUD_RATE, SERIAL_8N1, PIN_SERIAL_LCD_TO_ESP, PIN_SERIAL_ESP_TO_CNTRL);
 
-  //  swSerCntrlToLcd.begin(BAUD_RATE, SWSERIAL_8N1, SERIAL_CNTRL_TO_LCD_RXPIN, SERIAL_CNTRL_TO_LCD_TXPIN, false, 256);
   hwSerCntrlToLcd.begin(BAUD_RATE, SERIAL_8N1, PIN_SERIAL_CNTRL_TO_ESP, PIN_SERIAL_ESP_TO_LCD);
 }
 
@@ -1173,7 +1192,6 @@ void displayDecodedFrame(int mode, char data_buffer[], byte checksum)
 
   Serial.println(print_buffer);
 }
-
 
 void notifyBleLogFrame(int mode, char data_buffer[], byte checksum)
 {
@@ -1841,7 +1859,12 @@ void processBLE()
   // notify changed value
   if (deviceConnected)
   {
-    if (millis() > timeLastNotifyBle + 500)
+
+    uint16_t period = 500;
+    if (fastUpdate)
+      period = 100;
+
+    if (millis() > timeLastNotifyBle + period)
     {
 
       pCharacteristicSpeed->setValue((uint8_t *)&speedCurrent, 1);
@@ -1965,13 +1988,23 @@ void processVoltage()
 
   voltageStatus = analogRead(PIN_IN_VOLTAGE);
 
-  voltageInMilliVolts = (voltageStatus * 1000) / ANALOG_TO_VOLTS;
+  double correctedValue = -0.000000000000016 * pow(voltageStatus, 4) + 0.000000000118171 * pow(voltageStatus, 3) - 0.000000301211691 * pow(voltageStatus, 2) + 0.001109019271794 * voltageStatus + 0.034143524634089;
+
+  //voltageInMilliVolts = (voltageStatus * 1000.0) / ANALOG_TO_VOLTS;
+  voltageInMilliVolts = correctedValue * 25.27 * 1000;
+
   voltageFilter.in(voltageInMilliVolts);
 
-  /*   Serial.print("Voltage read : ");
+  /*
+  Serial.print("Voltage read : ");
   Serial.print(voltageStatus);
   Serial.print(" / in volts : ");
-  Serial.println(voltageInMilliVolts / 1000.0); */
+  Serial.print(voltageInMilliVolts / 1000.0); 
+  Serial.print(" / in correctedValue : ");
+  Serial.print(correctedValue); 
+  Serial.print(" / in volts2 : ");
+  Serial.println(correctedValue * 25.27); 
+  */
 }
 
 void processCurrent()
