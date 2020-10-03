@@ -34,13 +34,14 @@
 #define DEBUG_DISPLAY_FRAME_LCD_TO_CNTRL 0
 #define DEBUG_DISPLAY_FRAME_CNTRL_TO_LCD 0
 #define DEBUG_DISPLAY_DECODED_FRAME_CNTRL_TO_LCD 0
-#define DEBUG_DISPLAY_SPEED 1
+#define DEBUG_DISPLAY_SPEED 0
 #define DEBUG_DISPLAY_MODE 0
 #define DEBUG_DISPLAY_BRAKE 0
 #define DEBUG_DISPLAY_ECO 0
 #define DEBUG_DISPLAY_ACCEL 0
 #define DEBUG_DISPLAY_BUTTON1 0
 #define DEBUG_DISPLAY_BUTTON2 0
+#define DEBUG_DISPLAY_VOLTAGE 1
 #define DEBUG_DISPLAY_CURRENT 0
 #define DEBUG_DISPLAY_DHT 0
 #define DEBUG_SERIAL_CHECKSUM_LCD_TO_CNTRL 0
@@ -60,7 +61,8 @@
 #define PIN_IN_BUTTON2 10
 #define PIN_OUT_LED_BUTTON1 14
 #define PIN_OUT_LED_BUTTON2 5
-#define PIN_IN_OUT_DH12 27
+#define PIN_OUT_BRAKE 16
+#define PIN_IN_OUT_DHT 27
 #define PIN_IN_BRAKE 34
 
 #define MODE_LCD_TO_CNTRL 0
@@ -71,7 +73,7 @@
 
 #define ANALOG_TO_VOLTS 46
 #define ANALOG_TO_CURRENT 35
-#define NB_CURRENT_CALIB 3000
+#define NB_CURRENT_CALIB 100
 
 #define EEPROM_SIZE 1024
 #define EEPROM_ADDRESS_SETTINGS 0
@@ -164,7 +166,7 @@ char bleLog[50] = "";
 HardwareSerial hwSerCntrlToLcd(1);
 HardwareSerial hwSerLcdToCntrl(2);
 
-DHT_nonblocking dht_sensor(PIN_IN_OUT_DH12, DHT_TYPE_11);
+DHT_nonblocking dht_sensor(PIN_IN_OUT_DHT, DHT_TYPE_22);
 
 int i_loop = 0;
 
@@ -214,6 +216,8 @@ int8_t breakeSentOrder = -1;
 uint8_t brakeLcd = 0;
 int8_t brakeLcdOld = -1;
 int8_t breakeSentOrderOld = -1;
+uint16_t brakeAnalogValue = 0;
+uint8_t button1 = 0;
 
 uint8_t currentCalibOrder = 1;
 uint32_t iCurrentCalibOrder = 0;
@@ -806,14 +810,17 @@ void notifyBleLogs(char *txt)
 
 void setupPins()
 {
-  //pinMode(PIN_IN_OUT_DH12, INPUT_PULLUP);
+
+  pinMode(PIN_IN_OUT_DHT, INPUT_PULLUP);
   pinMode(PIN_IN_BUTTON1, INPUT_PULLUP);
   pinMode(PIN_IN_BUTTON2, INPUT_PULLUP);
   pinMode(PIN_IN_VOLTAGE, INPUT);
   pinMode(PIN_IN_CURRENT, INPUT);
-
-  //  pinMode(PIN_IN_DH12, INPUT_PULLUP);
-  pinMode(14, OUTPUT);
+  pinMode(PIN_IN_BRAKE, INPUT);
+  pinMode(PIN_OUT_RELAY, OUTPUT);
+  pinMode(PIN_OUT_BRAKE, OUTPUT);
+  pinMode(PIN_OUT_LED_BUTTON1, OUTPUT);
+  pinMode(PIN_OUT_LED_BUTTON2, OUTPUT);
 
   analogSetClockDiv(255); // 1338mS
 }
@@ -1391,7 +1398,7 @@ uint8_t modifyPower(char var, char data_buffer[])
   return newPower;
 }
 
-uint8_t getBrakeFromLCD(char var, char data_buffer[])
+uint8_t processBrakeFromLCD(char var, char data_buffer[])
 {
 
   uint8_t brake = (var - data_buffer[3]) & 0x20;
@@ -1452,7 +1459,7 @@ uint8_t getBrakeFromLCD(char var, char data_buffer[])
   return brake;
 }
 
-uint8_t modifyBrake(char var, char data_buffer[])
+uint8_t modifyBrakeFromLCD(char var, char data_buffer[])
 {
 
   uint32_t currentTime = millis();
@@ -1706,7 +1713,7 @@ int readHardSerial(int i, HardwareSerial *ss, int serialMode, char data_buffer_o
 
       if (i == 10)
       {
-        var = modifyBrake(var, data_buffer_ori);
+        var = modifyBrakeFromLCD(var, data_buffer_ori);
         isModified_LcdToCntrl = 1;
       }
 
@@ -1731,7 +1738,7 @@ int readHardSerial(int i, HardwareSerial *ss, int serialMode, char data_buffer_o
     {
       if (i == 4)
       {
-        getBrakeFromLCD(var, data_buffer_ori);
+        processBrakeFromLCD(var, data_buffer_ori);
       }
 
       // modify speed
@@ -1931,9 +1938,39 @@ void processBLE()
   }
 }
 
-void processBrake()
+void processBrakeFromAnalog()
 {
-  brakeStatus = digitalRead(PIN_IN_BRAKE);
+  brakeAnalogValue = analogRead(PIN_IN_BRAKE);
+  button1 = digitalRead(PIN_IN_BUTTON1);
+  uint8_t button2 = digitalRead(PIN_IN_BUTTON2);
+
+  if (brakeAnalogValue > 900)
+  {
+    digitalWrite(PIN_OUT_BRAKE, 1);
+    digitalWrite(PIN_OUT_LED_BUTTON1, 1);
+    /*
+    Serial.print("brake ON / button1 : ");
+    Serial.print(button1);
+    Serial.print(" / button2 : ");
+    Serial.print(button2);
+    */
+  }
+  else
+  {
+    digitalWrite(PIN_OUT_BRAKE, 0);
+    digitalWrite(PIN_OUT_LED_BUTTON1, 0);
+    /*
+    Serial.print("brake OFF / button1 : ");
+    Serial.print(button1);
+    Serial.print(" / button2 : ");
+    Serial.print(button2);
+    */
+  }
+
+  /*
+  Serial.print(" / brakeAnalogValue : ");
+  Serial.println(brakeAnalogValue);
+  */
 }
 
 void processButton1()
@@ -1951,7 +1988,7 @@ void processDHT()
   static unsigned long measurement_timestamp = millis();
 
   /* Measure once every four seconds. */
-  if (millis() - measurement_timestamp > 4000ul)
+  if (millis() - measurement_timestamp > 5000ul)
   {
 
     float temperature;
@@ -1987,24 +2024,27 @@ void processVoltage()
 {
 
   voltageStatus = analogRead(PIN_IN_VOLTAGE);
+  voltageInMilliVolts = (voltageStatus * 1000.0) / ANALOG_TO_VOLTS;
 
-  double correctedValue = -0.000000000000016 * pow(voltageStatus, 4) + 0.000000000118171 * pow(voltageStatus, 3) - 0.000000301211691 * pow(voltageStatus, 2) + 0.001109019271794 * voltageStatus + 0.034143524634089;
-
-  //voltageInMilliVolts = (voltageStatus * 1000.0) / ANALOG_TO_VOLTS;
-  voltageInMilliVolts = correctedValue * 25.27 * 1000;
+  //double correctedValue = -0.000000000000016 * pow(voltageStatus, 4) + 0.000000000118171 * pow(voltageStatus, 3) - 0.000000301211691 * pow(voltageStatus, 2) + 0.001109019271794 * voltageStatus + 0.034143524634089;
+  //voltageInMilliVolts = correctedValue * 25.27 * 1000;
 
   voltageFilter.in(voltageInMilliVolts);
 
-  /*
+#if DEBUG_DISPLAY_VOLTAGE
   Serial.print("Voltage read : ");
   Serial.print(voltageStatus);
+  Serial.print(" / in voltage mean : ");
+  Serial.print(voltageFilter.getMean());
   Serial.print(" / in volts : ");
-  Serial.print(voltageInMilliVolts / 1000.0); 
+  Serial.println(voltageInMilliVolts / 1000.0);
+  /*
   Serial.print(" / in correctedValue : ");
   Serial.print(correctedValue); 
   Serial.print(" / in volts2 : ");
   Serial.println(correctedValue * 25.27); 
   */
+#endif
 }
 
 void processCurrent()
@@ -2061,26 +2101,24 @@ void loop()
   displayButton2();
 #endif
 
-  if (i_loop % 100 == 1)
+  if (i_loop % 100 == 0)
   {
     processVoltage();
-    //processCurrent();
-
-    //processBrake();
-    //displayBrake();
   }
 
-  if (i_loop % 1000 == 1)
-  {
-    /* Measure temperature and humidity.  If the functions returns
-     true, then a measurement is available. */
-    processDHT();
-  }
-
-  if (i_loop % 10 == 1)
+  if (i_loop % 100 == 1)
   {
     processCurrent();
   }
+
+  if (i_loop % 100 == 2)
+  {
+    processBrakeFromAnalog();
+    //displayBrake();
+  }
+
+  // keep it fast (/100 not working)
+  processDHT();
 
   // handle OTA
   if (inOtaMode)
@@ -2092,8 +2130,6 @@ void loop()
   // Give a time for ESP
   delay(1);
   i_loop++;
-
-  digitalWrite(14, i_loop % 2);
 
   timeLoop = millis();
 }
