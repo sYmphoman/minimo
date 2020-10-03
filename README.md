@@ -52,18 +52,24 @@ I have no skills in iPhone apps. If anyone wants to develop, let me know.
     - [X] Anti-theth with beacon (scan & rssi detection)
     - [ ] SmartLCD connexion security
     - [ ] Beacon settings
+- [ ] Power
+    - [ ] Convert 12V to 5V
+    - [ ] Convert 80V to 5V
+    - [ ] Convert 100V to 5V
 - [ ] Other inputs/outputs
     - [X] Read current with WCS1700
     - [X] Read battery voltage
     - [X] Read tempertature/humidity with DHT11
     - [X] Read break handle position on serial
-    - [ ] Read break handle position on brake handle
+    - [ ] Read break handle position on standard brake handle
+    - [X] Read break handle position on analog brake handle
 - [ ] Features    
     - [X] Save settings in non volatile memory
     - [X] Disable electric brake with full battery
     - [X] Progressive electric braking (software detection)
+    - [ ] Progressive electric braking (hardware on/off detection)
+    - [ ] Progressive electric braking (hardware analog detection)
     - [X] OTA update
-    - [ ] Progressive electric braking (hardware detection)
     - [X] Current measure auto calibration (at startup)
     - [X] Current measure manual calibration
     - [X] LCD Speed adjustment
